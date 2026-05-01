@@ -6,3 +6,4 @@ deploy/runtime-cache/
 .env.local
 *.log
 .DS_Store
+data/feedback.jsonl

@@ -8,204 +8,1082 @@
       :root {
         --bg: #0f1115;
         --card: #181b22;
+        --card-hover: #1d2129;
         --border: #2a2f3a;
+        --border-strong: #3a4150;
         --text: #e8eaef;
         --muted: #9aa1ad;
+        --muted-soft: #6b7280;
         --accent: #4f9eff;
+        --accent-soft: rgba(79, 158, 255, 0.15);
         --green: #4cc38a;
         --red: #ff6b6b;
         --orange: #f0a958;
       }
       * { box-sizing: border-box; }
       body {
-        margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-        background: var(--bg); color: var(--text);
+        margin: 0;
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
       }
       header {
-        padding: 18px 24px; border-bottom: 1px solid var(--border);
-        display: flex; align-items: center; gap: 12px;
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        position: sticky;
+        top: 0;
+        background: var(--bg);
+        z-index: 10;
       }
-      header h1 { margin: 0; font-size: 16px; font-weight: 600; }
-      header .pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--border); color: var(--muted); }
-      main { max-width: 960px; margin: 0 auto; padding: 24px; }
-      .form { display: flex; gap: 8px; margin-bottom: 24px; }
+      header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+      .pill {
+        font-size: 11px;
+        padding: 3px 9px;
+        border-radius: 10px;
+        background: var(--border);
+        color: var(--muted);
+      }
+      .pill.ready { color: var(--green); background: rgba(76, 195, 138, 0.15); }
+      .pill.warming { color: var(--orange); background: rgba(240, 169, 88, 0.15); }
+      .pill.error { color: var(--red); background: rgba(255, 107, 107, 0.15); }
+      main { max-width: 1080px; margin: 0 auto; padding: 20px; }
+
+      .form { display: flex; gap: 8px; margin-bottom: 12px; }
       .form input {
-        flex: 1; padding: 12px 14px; background: var(--card); color: var(--text);
-        border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
+        flex: 1;
+        padding: 11px 14px;
+        background: var(--card);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 14px;
+        min-width: 0;
       }
       .form input:focus { outline: none; border-color: var(--accent); }
       .form button {
-        padding: 12px 20px; border-radius: 8px; border: 0; background: var(--accent);
-        color: white; font-weight: 600; cursor: pointer; font-size: 14px;
+        padding: 11px 20px;
+        border-radius: 8px;
+        border: 0;
+        background: var(--accent);
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 14px;
       }
       .form button:disabled { opacity: 0.5; cursor: not-allowed; }
-      .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 24px; }
+      .form button.cancel { background: var(--border-strong); }
+
+      .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
       .examples button {
-        background: var(--card); color: var(--muted); border: 1px solid var(--border);
-        border-radius: 14px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+        background: var(--card);
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 6px 12px;
+        font-size: 12px;
+        cursor: pointer;
       }
       .examples button:hover { color: var(--text); border-color: var(--accent); }
-      .summary { padding: 16px; background: var(--card); border-radius: 8px; border: 1px solid var(--border); margin-bottom: 16px; }
-      .clarifying { padding: 12px 16px; background: rgba(240, 169, 88, 0.1); border-left: 3px solid var(--orange); border-radius: 4px; margin-bottom: 16px; }
+
+      .filters {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 16px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px 20px;
+      }
+      .filter-group { min-width: 0; }
+      .filter-group .label {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 6px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .filter-group .label .clear {
+        text-transform: none;
+        letter-spacing: 0;
+        color: var(--muted-soft);
+        background: none;
+        border: 0;
+        font-size: 11px;
+        cursor: pointer;
+        padding: 0;
+      }
+      .filter-group .label .clear:hover { color: var(--text); }
+      .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .chip {
+        background: var(--bg);
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .chip:hover { border-color: var(--border-strong); color: var(--text); }
+      .chip.active {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .chip .count {
+        margin-left: 4px;
+        font-size: 10px;
+        opacity: 0.7;
+      }
+      .filter-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+        cursor: pointer;
+        user-select: none;
+      }
+      .toggle input { accent-color: var(--accent); }
+      select.sort {
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 5px 8px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      select.sort:focus { outline: none; border-color: var(--accent); }
+
+      .history {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .history .label { color: var(--muted-soft); }
+      .history button {
+        background: transparent;
+        border: 1px dashed var(--border);
+        color: var(--muted);
+        border-radius: 12px;
+        padding: 3px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        max-width: 280px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .history button:hover { color: var(--text); border-color: var(--accent); }
+
+      .summary {
+        padding: 14px 16px;
+        background: var(--card);
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        margin-bottom: 12px;
+      }
+      .summary .meta {
+        font-size: 11px;
+        color: var(--muted-soft);
+        margin-top: 8px;
+      }
+      .clarifying {
+        padding: 12px 16px;
+        background: rgba(240, 169, 88, 0.1);
+        border-left: 3px solid var(--orange);
+        border-radius: 4px;
+        margin-bottom: 12px;
+      }
+      .refinements {
+        margin-bottom: 16px;
+        font-size: 12px;
+      }
+      .refinements .group { margin-bottom: 6px; }
+      .refinements .group-label { color: var(--muted-soft); margin-right: 6px; }
+
       .empty { padding: 24px; text-align: center; color: var(--muted); }
-      .product { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
-      .product .row1 { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+      .error {
+        padding: 12px 16px;
+        border-left: 3px solid var(--red);
+        background: rgba(255, 107, 107, 0.1);
+        margin-bottom: 16px;
+        border-radius: 4px;
+      }
+
+      .product {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+      }
+      .product .row1 {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+        align-items: flex-start;
+      }
       .product .name { font-weight: 600; }
-      .product .price { color: var(--green); font-weight: 600; white-space: nowrap; }
-      .product .meta { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
-      .product .meta span { margin-right: 12px; }
-      .product .explanation { font-size: 13px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
-      .stocks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-      .stocks .stock { padding: 2px 8px; border-radius: 4px; font-size: 11px; background: var(--border); color: var(--muted); }
+      .product .price-block {
+        text-align: right;
+        flex-shrink: 0;
+      }
+      .product .price {
+        color: var(--green);
+        font-weight: 600;
+        white-space: nowrap;
+        font-size: 16px;
+      }
+      .product .price-extra {
+        font-size: 11px;
+        color: var(--muted-soft);
+        margin-top: 2px;
+        white-space: nowrap;
+      }
+      .product .meta {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+        align-items: center;
+      }
+      .product .meta .vc {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        background: var(--bg);
+        padding: 1px 6px;
+        border-radius: 4px;
+        color: var(--text);
+      }
+      .product .meta .copy {
+        background: none;
+        border: 0;
+        color: var(--muted-soft);
+        cursor: pointer;
+        font-size: 11px;
+        padding: 0 4px;
+      }
+      .product .meta .copy:hover { color: var(--accent); }
+      .product .meta .copy.copied { color: var(--green); }
+
+      .stock-summary {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .stock-summary .total {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .stock-summary .primary-city {
+        color: var(--accent);
+        font-weight: 500;
+      }
+
+      .stocks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .stocks .stock {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        background: var(--bg);
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
       .stocks .stock.has { color: var(--green); }
-      .stocks .stock.zero { opacity: 0.4; }
-      .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+      .stocks .stock.primary { border-color: var(--accent); color: var(--accent); }
+
+      .stocks-zero {
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--muted-soft);
+      }
+      .stocks-zero summary {
+        cursor: pointer;
+        list-style: none;
+      }
+      .stocks-zero summary::-webkit-details-marker { display: none; }
+      .stocks-zero[open] summary::after { content: " ▾"; }
+      .stocks-zero:not([open]) summary::after { content: " ▸"; }
+
+      .product .explanation {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px dashed var(--border);
+      }
+
+      .feedback {
+        display: flex;
+        gap: 6px;
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px dashed var(--border);
+      }
+      .feedback button {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        border-radius: 6px;
+        padding: 3px 10px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+      .feedback button:hover { color: var(--text); border-color: var(--border-strong); }
+      .feedback button.sent {
+        opacity: 0.6;
+        cursor: default;
+        border-style: dashed;
+      }
+      .feedback button.sent.good { color: var(--green); border-color: var(--green); }
+      .feedback button.sent.bad { color: var(--red); border-color: var(--red); }
+      .feedback button.sent.wrong { color: var(--orange); border-color: var(--orange); }
+
+      .badge {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: 600;
+        margin-left: 6px;
+        vertical-align: middle;
+      }
       .badge.novelty { background: rgba(79, 158, 255, 0.2); color: var(--accent); }
       .badge.sale { background: rgba(255, 107, 107, 0.2); color: var(--red); }
-      details { margin-top: 16px; padding: 12px; background: var(--card); border-radius: 8px; border: 1px solid var(--border); font-size: 12px; }
-      details summary { cursor: pointer; color: var(--muted); }
-      details pre { color: var(--muted); white-space: pre-wrap; word-break: break-all; max-height: 360px; overflow: auto; }
-      .error { padding: 12px 16px; border-left: 3px solid var(--red); background: rgba(255, 107, 107, 0.1); margin-bottom: 16px; }
+
+      .skeleton {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+      }
+      .skeleton .bar {
+        height: 12px;
+        background: var(--border);
+        border-radius: 4px;
+        margin: 6px 0;
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      .skeleton .bar.w-60 { width: 60%; }
+      .skeleton .bar.w-80 { width: 80%; }
+      .skeleton .bar.w-40 { width: 40%; }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 0.8; }
+      }
+      .progress {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 12px;
+        text-align: center;
+      }
+
+      details.diagnostics {
+        margin-top: 16px;
+        padding: 12px;
+        background: var(--card);
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        font-size: 12px;
+      }
+      details.diagnostics summary { cursor: pointer; color: var(--muted); }
+      details.diagnostics pre {
+        color: var(--muted);
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 360px;
+        overflow: auto;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px; height: 1px;
+        padding: 0; margin: -1px;
+        overflow: hidden;
+        clip: rect(0,0,0,0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      @media (max-width: 720px) {
+        main { padding: 14px; }
+        .filters { grid-template-columns: 1fr; gap: 14px; padding: 12px; }
+        .form { flex-direction: column; }
+        .form button { padding: 11px; }
+        .product .row1 { flex-direction: column; gap: 4px; }
+        .product .price-block { text-align: left; }
+        .product .meta { font-size: 11px; }
+      }
     </style>
   </head>
   <body>
     <header>
       <h1>Консультант по номенклатуре</h1>
-      <span class="pill" id="status">проверка...</span>
+      <span class="pill" id="status" role="status" aria-live="polite">проверка...</span>
     </header>
     <main>
-      <form class="form" id="form">
+      <form class="form" id="form" role="search" aria-label="Поиск товаров">
+        <label for="q" class="visually-hidden">Запрос</label>
         <input id="q" type="text" placeholder="Например: винты M4 длиной 45 мм, оцинкованные" autocomplete="off" />
-        <button type="submit" id="submit">Спросить</button>
+        <button type="submit" id="submit" disabled>Спросить</button>
+        <button type="button" id="cancel" class="cancel" hidden>Отменить</button>
       </form>
-      <div class="examples">
-        <button data-q="Подберите винты M4 длиной около 45 мм, оцинкованные">винты M4 45мм</button>
-        <button data-q="артикул 7033 50">артикул 7033 50</button>
-        <button data-q="KAIMAN в хроме - сравните цены">KAIMAN сравнить</button>
-        <button data-q="Italiana Ferramenta на складе в Москве">Italiana Ferramenta в Москве</button>
-        <button data-q="Менсолодержатели для стеклянных полок до 30 мм">для стекла до 30мм</button>
-        <button data-q="Что продаётся парами, а не штуками?">парами</button>
-        <button data-q="ZZ150 M4 X45 IB цена и наличие">ZZ150 M4 X45 IB</button>
+
+      <div class="examples" id="examples" role="list" aria-label="Примеры запросов">
+        <button type="button" data-q="Подберите винты M4 длиной около 45 мм, оцинкованные">винты M4 45мм</button>
+        <button type="button" data-q="артикул 7033 50">артикул 7033 50</button>
+        <button type="button" data-q="KAIMAN в хроме - сравните цены">KAIMAN сравнить</button>
+        <button type="button" data-q="Italiana Ferramenta на складе в Москве">Italiana в Москве</button>
+        <button type="button" data-q="Менсолодержатели для стеклянных полок до 30 мм">для стекла до 30мм</button>
+        <button type="button" data-q="Что продаётся парами, а не штуками?">парами</button>
       </div>
-      <div id="result"></div>
+
+      <div class="history" id="history" hidden></div>
+
+      <section class="filters" id="filters" aria-label="Фильтры">
+        <div class="filter-group" id="cities-group">
+          <div class="label"><span>Город / склад</span><button type="button" class="clear" data-clear="cities">сбросить</button></div>
+          <div class="chips" id="cities"></div>
+        </div>
+        <div class="filter-group" id="brands-group" hidden>
+          <div class="label"><span>Бренд</span><button type="button" class="clear" data-clear="brands">сбросить</button></div>
+          <div class="chips" id="brands"></div>
+        </div>
+        <div class="filter-group" id="units-group" hidden>
+          <div class="label"><span>Единица</span><button type="button" class="clear" data-clear="units">сбросить</button></div>
+          <div class="chips" id="units"></div>
+        </div>
+        <div class="filter-group">
+          <div class="label"><span>Статус</span></div>
+          <div class="chips" id="statuses"></div>
+        </div>
+        <div class="filter-group" style="grid-column: 1/-1;">
+          <div class="filter-row">
+            <label class="toggle">
+              <input type="checkbox" id="requireAvailable" checked />
+              <span>Только в наличии</span>
+            </label>
+            <span style="color: var(--muted-soft); font-size: 12px;">Сортировка:</span>
+            <select class="sort" id="sort" aria-label="Сортировка">
+              <option value="relevance">по релевантности</option>
+              <option value="price_asc">цена: дешевле</option>
+              <option value="price_desc">цена: дороже</option>
+              <option value="stock_desc">остаток: больше</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <div id="result" aria-live="polite" aria-busy="false"></div>
     </main>
+
     <script>
+      // ---------- constants ----------
+      const WAREHOUSES = [
+        'Москва, Кантемировская',
+        'Санкт-Петербург',
+        'Воронеж',
+        'Королёв',
+        'Краснодар',
+        'Казань',
+        'МО, Клин',
+      ];
+      const STATUSES = [
+        { value: '', label: 'Все' },
+        { value: 'Новинка', label: 'Новинка' },
+        { value: 'Распродажа', label: 'Распродажа' },
+      ];
+      const HISTORY_KEY = 'rag-history-v1';
+      const MAX_HISTORY = 8;
+      const isDebug = new URLSearchParams(location.search).has('debug');
+      const priceFmt = new Intl.NumberFormat('ru-RU', {
+        style: 'currency',
+        currency: 'RUB',
+        maximumFractionDigits: 0,
+      });
+
+      // ---------- state ----------
+      const state = {
+        ready: false,
+        filters: {
+          cities: undefined,
+          brands: undefined,
+          status: undefined,
+          units: undefined,
+          requireAvailable: true,
+        },
+        sort: 'relevance',
+        lastResponse: null,
+        feedbackSent: new Map(), // key: `${requestId}:${offerId}` -> kind
+      };
+      let activeAbort = null;
+      let activeReqSeq = 0;
+      let progressTimer = null;
+
+      // ---------- DOM ----------
       const $ = (s) => document.querySelector(s);
       const status = $('#status');
       const form = $('#form');
       const q = $('#q');
       const submit = $('#submit');
+      const cancelBtn = $('#cancel');
       const result = $('#result');
-      const examples = document.querySelectorAll('.examples button');
+      const citiesEl = $('#cities');
+      const brandsEl = $('#brands');
+      const brandsGroup = $('#brands-group');
+      const unitsEl = $('#units');
+      const unitsGroup = $('#units-group');
+      const statusesEl = $('#statuses');
+      const requireAvailableEl = $('#requireAvailable');
+      const sortEl = $('#sort');
+      const historyEl = $('#history');
+      const examplesEl = $('#examples');
 
-      async function checkHealth() {
-        try {
-          const r = await fetch('/api/health');
-          const j = await r.json();
-          if (j.status === 'ready') {
-            status.textContent = 'готов';
-            status.style.color = 'var(--green)';
-          } else {
-            status.textContent = 'прогрев индекса...';
-            setTimeout(checkHealth, 2000);
-          }
-        } catch {
-          status.textContent = 'недоступен';
-          status.style.color = 'var(--red)';
-        }
-      }
-
+      // ---------- helpers ----------
       function escapeHtml(s) {
         return String(s).replace(/[&<>"']/g, (c) => ({
           '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
         }[c]));
       }
 
+      function setStatus(kind, text) {
+        status.textContent = text;
+        status.className = 'pill ' + kind;
+      }
+
+      function setLoading(loading) {
+        result.setAttribute('aria-busy', loading ? 'true' : 'false');
+        submit.hidden = loading;
+        cancelBtn.hidden = !loading;
+      }
+
+      function loadHistory() {
+        try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
+        catch { return []; }
+      }
+      function pushHistory(query) {
+        const list = loadHistory().filter((x) => x !== query);
+        list.unshift(query);
+        if (list.length > MAX_HISTORY) list.length = MAX_HISTORY;
+        try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list)); } catch {}
+        renderHistory();
+      }
+
+      // ---------- render: filters ----------
+      function renderCities(refinement) {
+        const counts = new Map((refinement?.cities ?? []).map((c) => [c.value, c.count]));
+        const active = new Set(state.filters.cities ?? []);
+        citiesEl.innerHTML = WAREHOUSES.map((city) => {
+          const isActive = active.has(city);
+          const count = counts.get(city);
+          return `<button type="button" class="chip ${isActive ? 'active' : ''}" data-city="${escapeHtml(city)}" aria-pressed="${isActive}">${escapeHtml(city)}${count ? `<span class="count">${count}</span>` : ''}</button>`;
+        }).join('');
+      }
+
+      function renderBrands(refinement) {
+        const list = refinement?.brands ?? [];
+        if (list.length === 0) {
+          brandsGroup.hidden = true;
+          return;
+        }
+        const active = new Set(state.filters.brands ?? []);
+        // include any active brand that isn't in current refinement (so user sees their selection)
+        const seen = new Set(list.map((b) => b.value));
+        const extras = Array.from(active).filter((b) => !seen.has(b)).map((b) => ({ value: b, label: b, count: 0 }));
+        const all = [...list, ...extras];
+        brandsGroup.hidden = false;
+        brandsEl.innerHTML = all.map((b) => {
+          const isActive = active.has(b.value);
+          return `<button type="button" class="chip ${isActive ? 'active' : ''}" data-brand="${escapeHtml(b.value)}" aria-pressed="${isActive}">${escapeHtml(b.label)}${b.count ? `<span class="count">${b.count}</span>` : ''}</button>`;
+        }).join('');
+      }
+
+      function renderUnits(refinement) {
+        const list = refinement?.units ?? [];
+        if (list.length === 0) {
+          unitsGroup.hidden = true;
+          return;
+        }
+        const active = new Set(state.filters.units ?? []);
+        unitsGroup.hidden = false;
+        unitsEl.innerHTML = list.map((u) => {
+          const isActive = active.has(u.value);
+          return `<button type="button" class="chip ${isActive ? 'active' : ''}" data-unit="${escapeHtml(u.value)}" aria-pressed="${isActive}">${escapeHtml(u.label)}<span class="count">${u.count}</span></button>`;
+        }).join('');
+      }
+
+      function renderStatuses() {
+        const cur = state.filters.status ?? '';
+        statusesEl.innerHTML = STATUSES.map((s) => {
+          const isActive = (s.value || '') === cur;
+          return `<button type="button" class="chip ${isActive ? 'active' : ''}" data-status="${escapeHtml(s.value)}" aria-pressed="${isActive}">${escapeHtml(s.label)}</button>`;
+        }).join('');
+      }
+
+      function renderFilters(refinement) {
+        renderCities(refinement);
+        renderBrands(refinement);
+        renderUnits(refinement);
+        renderStatuses();
+        requireAvailableEl.checked = state.filters.requireAvailable !== false;
+        sortEl.value = state.sort;
+      }
+
+      // ---------- render: history ----------
+      function renderHistory() {
+        const list = loadHistory();
+        if (list.length === 0) { historyEl.hidden = true; return; }
+        historyEl.hidden = false;
+        historyEl.innerHTML =
+          '<span class="label">Недавние:</span>' +
+          list.map((item) => `<button type="button" data-history="${escapeHtml(item)}" title="${escapeHtml(item)}">${escapeHtml(item)}</button>`).join('');
+      }
+
+      // ---------- render: result ----------
+      function renderSkeleton(stage) {
+        result.innerHTML = `
+          <div class="progress">${escapeHtml(stage)}</div>
+          ${[0, 1, 2].map(() => `
+            <div class="skeleton">
+              <div class="bar w-80"></div>
+              <div class="bar w-60"></div>
+              <div class="bar w-40"></div>
+            </div>
+          `).join('')}
+        `;
+      }
+
+      function startProgressStages() {
+        const stages = ['Ищу товары…', 'Сравниваю варианты…', 'Формирую ответ…'];
+        let i = 0;
+        renderSkeleton(stages[0]);
+        if (progressTimer) clearInterval(progressTimer);
+        progressTimer = setInterval(() => {
+          i = Math.min(i + 1, stages.length - 1);
+          const el = result.querySelector('.progress');
+          if (el) el.textContent = stages[i];
+        }, 1200);
+      }
+
+      function stopProgressStages() {
+        if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+      }
+
+      function renderProductStocks(p) {
+        const nonZero = p.stocks.filter((s) => s.qty > 0);
+        const zero = p.stocks.filter((s) => s.qty === 0);
+        const renderOne = (s) => {
+          const cls = ['stock'];
+          if (s.qty > 0) cls.push('has');
+          if (s.city === p.primaryCity) cls.push('primary');
+          const qStr = s.approx ? `${s.qty}+` : s.qty;
+          return `<span class="${cls.join(' ')}">${escapeHtml(s.city)}: ${qStr}</span>`;
+        };
+        let html = `<div class="stocks">${nonZero.map(renderOne).join('')}</div>`;
+        if (zero.length > 0) {
+          html += `
+            <details class="stocks-zero">
+              <summary>нет в наличии: ${zero.length} складов</summary>
+              <div class="stocks" style="margin-top:6px">${zero.map(renderOne).join('')}</div>
+            </details>
+          `;
+        }
+        return html;
+      }
+
+      function renderProductPrice(p) {
+        const main = `<div class="price">${escapeHtml(priceFmt.format(p.prices.retail))}</div>`;
+        const extras = [];
+        if (p.prices.wholesale) extras.push(`опт ${priceFmt.format(p.prices.wholesale)}`);
+        if (p.prices.usd) extras.push(`~${p.prices.usd.toFixed(2)} у.е.`);
+        const extra = extras.length ? `<div class="price-extra">${escapeHtml(extras.join(' · '))}</div>` : '';
+        return `<div class="price-block">${main}${extra}</div>`;
+      }
+
+      function renderProductMeta(p) {
+        const brandText = p.vendor.brand || p.vendor.raw;
+        return `
+          <div class="meta">
+            <span>артикул: <span class="vc">${escapeHtml(p.vendorCode)}</span></span>
+            <button type="button" class="copy" data-copy="${escapeHtml(p.vendorCode)}" aria-label="Скопировать артикул">копировать</button>
+            <span>${escapeHtml(brandText)}</span>
+            <span>ед: ${escapeHtml(p.unit ?? '-')}</span>
+          </div>
+        `;
+      }
+
+      function renderStockSummary(p) {
+        const parts = [`<span class="total">всего: ${p.totalStock}</span>`];
+        if (p.primaryStock) {
+          const q = p.primaryStock.approx ? `${p.primaryStock.qty}+` : p.primaryStock.qty;
+          parts.push(`<span class="primary-city">${escapeHtml(p.primaryCity)}: ${q}</span>`);
+        }
+        return `<div class="stock-summary">${parts.join(' · ')}</div>`;
+      }
+
+      function renderFeedbackButtons(requestId, offerId) {
+        const key = `${requestId}:${offerId}`;
+        const sent = state.feedbackSent.get(key);
+        const btn = (kind, label, cls) => {
+          const isSent = sent === kind;
+          const sentClass = sent ? `sent ${cls}` : '';
+          const disabled = sent ? 'disabled' : '';
+          return `<button type="button" class="${isSent ? sentClass : ''}" data-feedback="${kind}" data-offer="${offerId}" ${disabled}>${escapeHtml(label)}${isSent ? ' ✓' : ''}</button>`;
+        };
+        return `
+          <div class="feedback" role="group" aria-label="Оценить результат">
+            ${btn('good', 'подходит', 'good')}
+            ${btn('bad', 'не подходит', 'bad')}
+            ${btn('wrong_product', 'не тот товар', 'wrong')}
+          </div>
+        `;
+      }
+
+      function renderProduct(p, requestId) {
+        const badge = p.status === 'Новинка'
+          ? '<span class="badge novelty">Новинка</span>'
+          : p.status === 'Распродажа'
+            ? '<span class="badge sale">Распродажа</span>'
+            : '';
+        return `
+          <article class="product" data-offer="${p.offerId}">
+            <div class="row1">
+              <div style="min-width:0">
+                <div class="name">${escapeHtml(p.name)} ${badge}</div>
+                ${renderProductMeta(p)}
+              </div>
+              ${renderProductPrice(p)}
+            </div>
+            ${renderStockSummary(p)}
+            ${renderProductStocks(p)}
+            <div class="explanation">${escapeHtml(p.explanation)}</div>
+            ${renderFeedbackButtons(requestId, p.offerId)}
+          </article>
+        `;
+      }
+
+      function renderRefinements(data) {
+        if (!data.refinement_options) return '';
+        const inferred = data.filters_inferred || {};
+        const applied = data.filters_applied || {};
+        const tip = (label, value, target) =>
+          `<button type="button" class="chip" data-refine='${JSON.stringify({ target, value })}'>${escapeHtml(label)}</button>`;
+        const groups = [];
+
+        // Suggest unset brands when there are several
+        const brandList = (data.refinement_options.brands || []).slice(0, 4);
+        if (brandList.length > 1 && !(applied.brands && applied.brands.length)) {
+          const chips = brandList.map((b) => tip(`${b.label} (${b.count})`, b.value, 'brand')).join(' ');
+          groups.push(`<div class="group"><span class="group-label">Уточнить бренд:</span> ${chips}</div>`);
+        }
+        const cityList = (data.refinement_options.cities || []).slice(0, 4);
+        if (cityList.length > 1 && !(applied.cities && applied.cities.length)) {
+          const chips = cityList.map((c) => tip(`${c.label} (${c.count})`, c.value, 'city')).join(' ');
+          groups.push(`<div class="group"><span class="group-label">Уточнить город:</span> ${chips}</div>`);
+        }
+        if (groups.length === 0) return '';
+        return `<div class="refinements">${groups.join('')}</div>`;
+      }
+
       function renderResult(data) {
+        state.lastResponse = data;
+        renderFilters(data.refinement_options);
+
         if (!data || !data.summary) {
           result.innerHTML = '<div class="empty">Пустой ответ</div>';
           return;
         }
         const parts = [];
-        parts.push(`<div class="summary">${escapeHtml(data.summary)}</div>`);
+        const meta = [];
+        if (typeof data.total_available === 'number') meta.push(`найдено в наличии: ${data.total_available}`);
+        const metaStr = meta.length ? `<div class="meta">${escapeHtml(meta.join(' · '))}</div>` : '';
+        parts.push(`<div class="summary">${escapeHtml(data.summary)}${metaStr}</div>`);
         if (data.clarifying_question) {
           parts.push(`<div class="clarifying"><b>Уточнение:</b> ${escapeHtml(data.clarifying_question)}</div>`);
         }
+        parts.push(renderRefinements(data));
         if (!data.products || data.products.length === 0) {
-          parts.push('<div class="empty">Подходящих товаров не найдено.</div>');
+          parts.push('<div class="empty">Подходящих товаров не найдено. Попробуйте смягчить фильтры.</div>');
         } else {
-          for (const p of data.products) {
-            const stocksHtml = Object.entries(p.stocks)
-              .map(([city, s]) => {
-                const cls = s.qty > 0 ? 'stock has' : 'stock zero';
-                const q = s.approx ? `${s.qty}+` : s.qty;
-                return `<span class="${cls}">${escapeHtml(city)}: ${q}</span>`;
-              })
-              .join('');
-            const badge = p.status === 'Новинка'
-              ? '<span class="badge novelty">Новинка</span>'
-              : p.status === 'Распродажа'
-                ? '<span class="badge sale">Распродажа</span>'
-                : '';
-            parts.push(`
-              <div class="product">
-                <div class="row1">
-                  <div>
-                    <div class="name">${escapeHtml(p.name)} ${badge}</div>
-                    <div class="meta">
-                      <span>артикул: <b>${escapeHtml(p.vendorCode)}</b></span>
-                      <span>${escapeHtml(p.vendor)}</span>
-                      <span>ед: ${escapeHtml(p.unit ?? '-')}</span>
-                    </div>
-                  </div>
-                  <div class="price">${p.price} ₽</div>
-                </div>
-                <div class="stocks">${stocksHtml}</div>
-                <div class="explanation">${escapeHtml(p.explanation)}</div>
-              </div>
-            `);
-          }
+          for (const p of data.products) parts.push(renderProduct(p, data.requestId));
         }
-        if (data.diagnostics) {
+        if (isDebug && data.diagnostics) {
           const d = data.diagnostics;
           const cost = (d.cost_usd * 1000).toFixed(3);
-          parts.push(`<details><summary>Diagnostics (latency ${d.latency_ms}ms · ~$${cost} ‰ · retrieved ${d.retrieved_count} → ${d.after_filter_count})</summary><pre>${escapeHtml(JSON.stringify(d, null, 2))}</pre></details>`);
+          parts.push(`<details class="diagnostics"><summary>Diagnostics (latency ${d.latency_ms}ms · ~$${cost} ‰ · retrieved ${d.retrieved_count} → ${d.after_filter_count})</summary><pre>${escapeHtml(JSON.stringify(d, null, 2))}</pre></details>`);
         }
         result.innerHTML = parts.join('');
+
+        // focus first product for keyboard/SR users
+        const first = result.querySelector('.product');
+        if (first) first.setAttribute('tabindex', '-1');
       }
 
+      // ---------- network ----------
       async function ask(query) {
-        result.innerHTML = '<div class="empty">Думаю...</div>';
-        submit.disabled = true;
+        if (!state.ready) return;
+        if (activeAbort) activeAbort.abort();
+        const seq = ++activeReqSeq;
+        const ctrl = new AbortController();
+        activeAbort = ctrl;
+        setLoading(true);
+        startProgressStages();
         try {
+          const body = {
+            query,
+            filters: cleanFilters(state.filters),
+            sort: state.sort,
+          };
+          if (isDebug) body.debug = true;
           const r = await fetch('/api/ask', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query }),
+            body: JSON.stringify(body),
+            signal: ctrl.signal,
           });
+          if (seq !== activeReqSeq) return;
+          stopProgressStages();
           const j = await r.json();
           if (!r.ok) {
+            if (r.status === 503) {
+              setStatus('warming', 'каталог прогревается');
+              state.ready = false;
+              checkHealth(0);
+              result.innerHTML = `<div class="error">Каталог ещё прогревается. Ждём готовности и повторим автоматически.</div>`;
+              return;
+            }
             result.innerHTML = `<div class="error">Ошибка: ${escapeHtml(j.message || j.error || r.statusText)}</div>`;
             return;
           }
           renderResult(j);
+          pushHistory(query);
         } catch (e) {
+          if (e.name === 'AbortError') return;
+          stopProgressStages();
           result.innerHTML = `<div class="error">Сеть: ${escapeHtml(e.message)}</div>`;
         } finally {
-          submit.disabled = false;
+          if (seq === activeReqSeq) {
+            activeAbort = null;
+            setLoading(false);
+          }
         }
       }
 
+      function cleanFilters(f) {
+        const out = {};
+        if (f.cities !== undefined) out.cities = f.cities;
+        if (f.brands !== undefined) out.brands = f.brands;
+        if (f.units !== undefined) out.units = f.units;
+        if (f.status) out.status = f.status;
+        if (typeof f.requireAvailable === 'boolean') out.requireAvailable = f.requireAvailable;
+        return out;
+      }
+
+      async function sendFeedback(offerId, kind) {
+        const requestId = state.lastResponse?.requestId;
+        if (!requestId) return;
+        const key = `${requestId}:${offerId}`;
+        if (state.feedbackSent.has(key)) return;
+        state.feedbackSent.set(key, kind);
+        // optimistic re-render of the card's feedback row
+        const card = result.querySelector(`.product[data-offer="${offerId}"]`);
+        if (card) {
+          const row = card.querySelector('.feedback');
+          if (row) row.outerHTML = renderFeedbackButtons(requestId, offerId);
+        }
+        try {
+          await fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              requestId,
+              offerId,
+              kind,
+              query: q.value || undefined,
+            }),
+          });
+        } catch {
+          // network failure: keep optimistic state, user already saw the ack
+        }
+      }
+
+      // ---------- health loop ----------
+      async function checkHealth(attempt) {
+        try {
+          const r = await fetch('/api/health');
+          const j = await r.json();
+          if (j.status === 'ready') {
+            state.ready = true;
+            setStatus('ready', 'готов');
+            submit.disabled = false;
+            return;
+          }
+          state.ready = false;
+          setStatus('warming', 'прогрев индекса…');
+          submit.disabled = true;
+          const delay = Math.min(2000 * Math.pow(1.5, attempt), 15000);
+          setTimeout(() => checkHealth(attempt + 1), delay);
+        } catch {
+          state.ready = false;
+          setStatus('error', 'нет связи, повторяем…');
+          submit.disabled = true;
+          const delay = Math.min(2000 * Math.pow(1.5, attempt), 15000);
+          setTimeout(() => checkHealth(attempt + 1), delay);
+        }
+      }
+
+      // ---------- filter mutators ----------
+      function toggleArrayFilter(key, value) {
+        const cur = new Set(state.filters[key] ?? []);
+        if (cur.has(value)) cur.delete(value); else cur.add(value);
+        state.filters[key] = Array.from(cur); // [] means "explicitly any"
+      }
+      function setStatusFilter(value) {
+        state.filters.status = value || undefined;
+      }
+      function clearFilter(key) {
+        if (key === 'status') state.filters.status = undefined;
+        else state.filters[key] = [];
+      }
+      function refireIfQuery() {
+        const v = q.value.trim();
+        if (v && state.ready) ask(v);
+        else renderFilters(state.lastResponse?.refinement_options);
+      }
+
+      // ---------- events ----------
       form.addEventListener('submit', (e) => {
         e.preventDefault();
         const v = q.value.trim();
-        if (v) ask(v);
+        if (v && state.ready) ask(v);
       });
-      examples.forEach((b) => b.addEventListener('click', () => {
-        q.value = b.dataset.q;
-        ask(b.dataset.q);
-      }));
-      checkHealth();
+      cancelBtn.addEventListener('click', () => {
+        if (activeAbort) activeAbort.abort();
+        activeReqSeq++;
+        stopProgressStages();
+        setLoading(false);
+        result.innerHTML = '<div class="empty">Запрос отменён.</div>';
+      });
+      examplesEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-q]');
+        if (!btn) return;
+        q.value = btn.dataset.q;
+        if (state.ready) ask(btn.dataset.q);
+      });
+      historyEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-history]');
+        if (!btn) return;
+        q.value = btn.dataset.history;
+        if (state.ready) ask(btn.dataset.history);
+      });
+
+      citiesEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-city]');
+        if (!btn) return;
+        toggleArrayFilter('cities', btn.dataset.city);
+        refireIfQuery();
+      });
+      brandsEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-brand]');
+        if (!btn) return;
+        toggleArrayFilter('brands', btn.dataset.brand);
+        refireIfQuery();
+      });
+      unitsEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-unit]');
+        if (!btn) return;
+        toggleArrayFilter('units', btn.dataset.unit);
+        refireIfQuery();
+      });
+      statusesEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-status]');
+        if (!btn) return;
+        setStatusFilter(btn.dataset.status);
+        refireIfQuery();
+      });
+      document.addEventListener('click', (e) => {
+        const clear = e.target.closest('button.clear[data-clear]');
+        if (clear) {
+          clearFilter(clear.dataset.clear);
+          refireIfQuery();
+        }
+      });
+      requireAvailableEl.addEventListener('change', () => {
+        state.filters.requireAvailable = requireAvailableEl.checked;
+        refireIfQuery();
+      });
+      sortEl.addEventListener('change', () => {
+        state.sort = sortEl.value;
+        refireIfQuery();
+      });
+
+      // delegated handlers for result region
+      result.addEventListener('click', async (e) => {
+        const copyBtn = e.target.closest('button[data-copy]');
+        if (copyBtn) {
+          const code = copyBtn.dataset.copy;
+          try {
+            await navigator.clipboard.writeText(code);
+            copyBtn.classList.add('copied');
+            const original = copyBtn.textContent;
+            copyBtn.textContent = 'скопировано';
+            setTimeout(() => {
+              copyBtn.classList.remove('copied');
+              copyBtn.textContent = original;
+            }, 1400);
+          } catch {
+            copyBtn.textContent = 'скопируйте вручную';
+          }
+          return;
+        }
+        const fb = e.target.closest('button[data-feedback]');
+        if (fb && !fb.disabled) {
+          const offerId = Number(fb.dataset.offer);
+          sendFeedback(offerId, fb.dataset.feedback);
+          return;
+        }
+        const refine = e.target.closest('button[data-refine]');
+        if (refine) {
+          try {
+            const { target, value } = JSON.parse(refine.dataset.refine);
+            if (target === 'brand') toggleArrayFilter('brands', value);
+            else if (target === 'city') toggleArrayFilter('cities', value);
+            refireIfQuery();
+          } catch {}
+        }
+      });
+
+      // ---------- init ----------
+      renderFilters();
+      renderHistory();
+      checkHealth(0);
     </script>
   </body>
 </html>
