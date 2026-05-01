@@ -1,6 +1,7 @@
-import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { logger } from '../observability/logger.js';
-import type { Product } from '../ingestion/types.js';
+import type { NumericAttrs, Product, Stock, Warehouse } from '../ingestion/types.js';
+import { WAREHOUSES } from '../ingestion/types.js';
 import {
   ensureCacheDir,
   ingestExcelOnly,
@@ -9,7 +10,7 @@ import {
   saveProducts,
   writeHash,
 } from '../ingestion/buildIndex.js';
-import { buildBm25Index, type BM25Index } from '../search/bm25.js';
+import { buildBm25Index } from '../search/bm25.js';
 import { embedBatch, loadEmbeddings, saveEmbeddings } from '../search/embeddings.js';
 import { config } from '../config.js';
 import { hybridSearch, type HybridDeps, type HybridHit } from '../search/hybrid.js';
@@ -25,48 +26,93 @@ import { validateAnswer } from '../safety/validateAnswer.js';
 import { generateAnswer, type LLMUsage } from '../llm/client.js';
 import { buildUserMessage, formatRetrieved } from '../llm/prompt.js';
 import { estimateCostUsd } from '../observability/cost.js';
-import type { Warehouse } from '../ingestion/types.js';
+
+export type AskFilters = {
+  cities?: Warehouse[];
+  brands?: string[];
+  status?: 'Распродажа' | 'Новинка';
+  units?: string[];
+  requireAvailable?: boolean;
+};
+
+export type AskSort = 'relevance' | 'price_asc' | 'price_desc' | 'stock_desc';
+
+export type AskOptions = {
+  filters?: AskFilters;
+  sort?: AskSort;
+  debug?: boolean;
+};
+
+export type ApiStock = { city: Warehouse; qty: number; approx: boolean };
+
+export type ApiProduct = {
+  offerId: number;
+  name: string;
+  vendorCode: string;
+  vendor: { raw: string; brand?: string; country?: string };
+  unit: string | null;
+  prices: { retail: number; wholesale?: number; usd?: number };
+  currency: 'RUR';
+  available: boolean;
+  status?: 'Распродажа' | 'Новинка';
+  totalStock: number;
+  primaryCity: Warehouse | null;
+  primaryStock: ApiStock | null;
+  stocks: ApiStock[];
+  attrs: Record<string, string>;
+  numericAttrs: NumericAttrs;
+  hitSales?: number;
+  explanation: string;
+};
+
+export type FacetOption = { value: string; label: string; count: number };
+
+export type RefinementOptions = {
+  cities: FacetOption[];
+  brands: FacetOption[];
+  units: FacetOption[];
+  statuses: FacetOption[];
+};
+
+export type AskDiagnostics = {
+  sanitized_query: string;
+  injection_detected: boolean;
+  truncated_query: boolean;
+  cities_inferred: string[];
+  retrieved_count: number;
+  after_filter_count: number;
+  context_tokens: number;
+  context_truncated: boolean;
+  hallucinated_offer_ids: number[];
+  llm_usage: LLMUsage;
+  cost_usd: number;
+  latency_ms: number;
+};
+
+export type AskResult = {
+  requestId: string;
+  summary: string;
+  products: ApiProduct[];
+  clarifying_question?: string;
+  insufficient_data: boolean;
+  refinement_options: RefinementOptions;
+  filters_applied: AskFilters;
+  filters_inferred: AskFilters;
+  total_available: number;
+  diagnostics: AskDiagnostics;
+};
 
 export type RetrievalResult = {
   hits: HybridHit[];
   sanitized: SanitizedQuery;
-  filters: Filters;
+  filtersInferred: AskFilters;
+  filtersApplied: AskFilters;
   cities: Warehouse[];
   retrievedCount: number;
+  totalAvailable: number;
 };
 
-export type AskResult = {
-  summary: string;
-  products: Array<{
-    offerId: number;
-    name: string;
-    vendorCode: string;
-    vendor: string;
-    unit: string | null;
-    price: number;
-    currency: 'RUR';
-    available: boolean;
-    status?: 'Распродажа' | 'Новинка';
-    stocks: Record<string, { qty: number; approx: boolean }>;
-    explanation: string;
-  }>;
-  clarifying_question?: string;
-  insufficient_data: boolean;
-  diagnostics: {
-    sanitized_query: string;
-    injection_detected: boolean;
-    truncated_query: boolean;
-    cities_inferred: string[];
-    retrieved_count: number;
-    after_filter_count: number;
-    context_tokens: number;
-    context_truncated: boolean;
-    hallucinated_offer_ids: number[];
-    llm_usage: LLMUsage;
-    cost_usd: number;
-    latency_ms: number;
-  };
-};
+const STATUS_VALUES = ['Распродажа', 'Новинка'] as const;
 
 export class Pipeline {
   private deps!: HybridDeps;
@@ -116,33 +162,52 @@ export class Pipeline {
     return this.ready;
   }
 
-  async retrieve(rawQuery: string): Promise<RetrievalResult> {
+  inferFilters(query: string): AskFilters {
+    const ql = query.toLowerCase();
+    const cities = detectCities(query);
+    const brand = detectBrand(query, this.deps.brandIndex);
+    const inferred: AskFilters = {
+      cities: cities.length ? cities : undefined,
+      brands: brand ? [brand] : undefined,
+    };
+    if (/\bновинк/u.test(ql)) inferred.status = 'Новинка';
+    else if (/\bраспродаж/u.test(ql) || /\bскидк/u.test(ql) || /\bакци/u.test(ql)) {
+      inferred.status = 'Распродажа';
+    }
+    if (/\bпар(а|ам|ой|ы|у)\b|парами/u.test(ql)) inferred.units = ['пар'];
+    return inferred;
+  }
+
+  async retrieve(rawQuery: string, opts: AskOptions = {}): Promise<RetrievalResult> {
     if (!this.ready) throw new Error('pipeline not ready');
     const sanitized = sanitizeQuery(rawQuery);
     if (!sanitized.query) {
       throw new Error('empty query after sanitization');
     }
 
-    const cities = detectCities(sanitized.query);
-    const brand = detectBrand(sanitized.query, this.deps.brandIndex);
-    const filters: Filters = {
-      cities: cities.length ? cities : undefined,
-      brand,
-      requireAvailable: false,
+    const inferred = this.inferFilters(sanitized.query);
+    const merged = mergeFilters(inferred, opts.filters);
+    const applied: Filters = {
+      cities: merged.cities,
+      brands: merged.brands,
+      status: merged.status,
+      units: merged.units,
+      requireAvailable: merged.requireAvailable ?? true,
     };
-    const ql = sanitized.query.toLowerCase();
-    if (/\bновинк/u.test(ql)) filters.status = 'Новинка';
-    else if (/\bраспродаж/u.test(ql) || /\bскидк/u.test(ql) || /\bакци/u.test(ql)) filters.status = 'Распродажа';
-    if (/\bпар(а|ам|ой|ы|у)\b|парами/u.test(ql)) filters.unit = 'пар';
 
-    const narrow = !!(filters.unit || filters.status);
-    const hasFilters = !!(filters.cities || filters.status || filters.unit || filters.brand);
+    const narrow = !!(applied.units?.length || applied.status);
+    const hasFilters = !!(
+      applied.cities?.length ||
+      applied.brands?.length ||
+      applied.status ||
+      applied.units?.length
+    );
     const wide = hasFilters ? 3 : 1;
 
     let finalHits: HybridHit[];
     let retrievedCount: number;
     if (narrow) {
-      finalHits = await this.narrowRetrieval(sanitized.query, filters);
+      finalHits = await this.narrowRetrieval(sanitized.query, applied);
       retrievedCount = finalHits.length;
       if (finalHits.length === 0) {
         const hits = await hybridSearch(this.deps, sanitized.query, {
@@ -160,17 +225,36 @@ export class Pipeline {
         kFinal: config.TOP_K_FINAL * wide,
       });
       retrievedCount = hits.length;
-      const filtered = applyFilters(hits, filters);
+      const filtered = applyFilters(hits, applied);
       finalHits = (filtered.length > 0 ? filtered : hits).slice(0, config.TOP_K_FINAL);
     }
 
-    return { hits: finalHits, sanitized, filters, cities, retrievedCount };
+    const totalAvailable = applyFilters(finalHits, applied).length;
+
+    return {
+      hits: finalHits,
+      sanitized,
+      filtersInferred: inferred,
+      filtersApplied: applied,
+      cities: applied.cities ?? [],
+      retrievedCount,
+      totalAvailable,
+    };
   }
 
-  async ask(rawQuery: string): Promise<AskResult> {
+  async ask(rawQuery: string, opts: AskOptions = {}): Promise<AskResult> {
     if (!this.ready) throw new Error('pipeline not ready');
     const tStart = Date.now();
-    const { hits: finalHits, sanitized, cities, retrievedCount } = await this.retrieve(rawQuery);
+    const requestId = randomUUID();
+    const {
+      hits: finalHits,
+      sanitized,
+      filtersInferred,
+      filtersApplied,
+      cities,
+      retrievedCount,
+      totalAvailable,
+    } = await this.retrieve(rawQuery, opts);
 
     const ctx = buildContext(finalHits, config.MAX_CONTEXT_TOKENS);
     const retrievedBlock = formatRetrieved(ctx.items);
@@ -185,30 +269,29 @@ export class Pipeline {
     const validProductMap = new Map<number, Product>();
     for (const p of validation.validProducts) validProductMap.set(p.offerId, p);
 
-    const products: AskResult['products'] = [];
+    const primaryCity: Warehouse | null = filtersApplied.cities?.[0] ?? null;
+
+    let products: ApiProduct[] = [];
     for (const ap of answer.products) {
       const p = validProductMap.get(ap.offerId);
       if (!p) continue;
-      products.push({
-        offerId: p.offerId,
-        name: p.name,
-        vendorCode: p.vendorCode,
-        vendor: p.vendor.raw,
-        unit: p.unit,
-        price: p.prices.retail,
-        currency: 'RUR',
-        available: p.available,
-        status: p.status,
-        stocks: p.stocks,
-        explanation: ap.explanation,
-      });
+      products.push(toApiProduct(p, ap.explanation, primaryCity));
     }
 
+    products = sortProducts(products, opts.sort ?? 'relevance');
+
+    const refinement = computeRefinementOptions(finalHits);
+
     const result: AskResult = {
+      requestId,
       summary: answer.summary,
       products,
       clarifying_question: answer.clarifying_question,
       insufficient_data: answer.insufficient_data || products.length === 0,
+      refinement_options: refinement,
+      filters_applied: filtersApplied,
+      filters_inferred: filtersInferred,
+      total_available: totalAvailable,
       diagnostics: {
         sanitized_query: sanitized.query,
         injection_detected: sanitized.injectionDetected,
@@ -232,9 +315,17 @@ export class Pipeline {
     for (let i = 0; i < this.deps.products.length; i++) {
       const p = this.deps.products[i];
       if (!p) continue;
-      if (filters.unit && p.unit !== filters.unit) continue;
+      if (filters.units && filters.units.length > 0 && (!p.unit || !filters.units.includes(p.unit))) {
+        continue;
+      }
       if (filters.status && p.status !== filters.status) continue;
-      if (filters.brand && (!p.vendor.brand || !p.vendor.brand.toLowerCase().includes(filters.brand.toLowerCase()))) continue;
+      if (filters.brands && filters.brands.length > 0) {
+        if (!p.vendor.brand) continue;
+        const productBrand = p.vendor.brand.toLowerCase();
+        const brandOk = filters.brands.some((b) => productBrand.includes(b.toLowerCase()));
+        if (!brandOk) continue;
+      }
+      if (filters.requireAvailable && !p.available) continue;
       if (filters.cities && filters.cities.length > 0) {
         const ok = filters.cities.some((c) => {
           const s = p.stocks[c];
@@ -267,6 +358,113 @@ export class Pipeline {
   }
 }
 
+function mergeFilters(inferred: AskFilters, user: AskFilters | undefined): AskFilters {
+  if (!user) return { ...inferred };
+  const pickArray = <T>(userVal: T[] | undefined, inferredVal: T[] | undefined): T[] | undefined => {
+    if (userVal === undefined) return inferredVal;
+    return userVal.length > 0 ? userVal : undefined;
+  };
+  return {
+    cities: pickArray(user.cities, inferred.cities),
+    brands: pickArray(user.brands, inferred.brands),
+    status: user.status ?? inferred.status,
+    units: pickArray(user.units, inferred.units),
+    requireAvailable: user.requireAvailable ?? inferred.requireAvailable,
+  };
+}
+
+function toApiProduct(p: Product, explanation: string, primaryCity: Warehouse | null): ApiProduct {
+  const stocksRaw = WAREHOUSES.map<ApiStock>((city) => {
+    const s: Stock | undefined = p.stocks[city];
+    return { city, qty: s?.qty ?? 0, approx: s?.approx ?? false };
+  });
+  const sorted = sortStocks(stocksRaw, primaryCity);
+  const totalStock = stocksRaw.reduce((sum, s) => sum + s.qty, 0);
+  const primaryStock = primaryCity ? (stocksRaw.find((s) => s.city === primaryCity) ?? null) : null;
+
+  const prices: ApiProduct['prices'] = { retail: p.prices.retail };
+  if (p.prices.wholesale !== undefined) prices.wholesale = p.prices.wholesale;
+  if (p.prices.usd !== undefined) prices.usd = p.prices.usd;
+
+  const out: ApiProduct = {
+    offerId: p.offerId,
+    name: p.name,
+    vendorCode: p.vendorCode,
+    vendor: {
+      raw: p.vendor.raw,
+      ...(p.vendor.brand !== undefined ? { brand: p.vendor.brand } : {}),
+      ...(p.vendor.country !== undefined ? { country: p.vendor.country } : {}),
+    },
+    unit: p.unit,
+    prices,
+    currency: 'RUR',
+    available: p.available,
+    totalStock,
+    primaryCity,
+    primaryStock,
+    stocks: sorted,
+    attrs: p.attrs,
+    numericAttrs: p.numericAttrs,
+    explanation,
+  };
+  if (p.status !== undefined) out.status = p.status;
+  if (p.hitSales !== undefined) out.hitSales = p.hitSales;
+  return out;
+}
+
+function sortStocks(stocks: ApiStock[], primaryCity: Warehouse | null): ApiStock[] {
+  return [...stocks].sort((a, b) => {
+    if (primaryCity) {
+      if (a.city === primaryCity && b.city !== primaryCity) return -1;
+      if (b.city === primaryCity && a.city !== primaryCity) return 1;
+    }
+    if (a.qty > 0 && b.qty === 0) return -1;
+    if (b.qty > 0 && a.qty === 0) return 1;
+    return b.qty - a.qty;
+  });
+}
+
+function sortProducts(products: ApiProduct[], sort: AskSort): ApiProduct[] {
+  if (sort === 'relevance') return products;
+  const arr = [...products];
+  if (sort === 'price_asc') arr.sort((a, b) => a.prices.retail - b.prices.retail);
+  else if (sort === 'price_desc') arr.sort((a, b) => b.prices.retail - a.prices.retail);
+  else if (sort === 'stock_desc') arr.sort((a, b) => b.totalStock - a.totalStock);
+  return arr;
+}
+
+function computeRefinementOptions(hits: HybridHit[]): RefinementOptions {
+  const cityCounts = new Map<Warehouse, number>();
+  const brandCounts = new Map<string, number>();
+  const unitCounts = new Map<string, number>();
+  const statusCounts = new Map<string, number>();
+
+  for (const h of hits) {
+    const p = h.product;
+    for (const city of WAREHOUSES) {
+      const s = p.stocks[city];
+      if (s && s.qty > 0) cityCounts.set(city, (cityCounts.get(city) ?? 0) + 1);
+    }
+    if (p.vendor.brand) {
+      brandCounts.set(p.vendor.brand, (brandCounts.get(p.vendor.brand) ?? 0) + 1);
+    }
+    if (p.unit) unitCounts.set(p.unit, (unitCounts.get(p.unit) ?? 0) + 1);
+    if (p.status) statusCounts.set(p.status, (statusCounts.get(p.status) ?? 0) + 1);
+  }
+
+  const facet = (entries: Iterable<[string, number]>): FacetOption[] =>
+    Array.from(entries)
+      .map(([value, count]) => ({ value, label: value, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'ru'));
+
+  return {
+    cities: facet(cityCounts as Map<string, number>),
+    brands: facet(brandCounts),
+    units: facet(unitCounts),
+    statuses: facet(statusCounts).filter((s) => (STATUS_VALUES as readonly string[]).includes(s.value)),
+  };
+}
+
 async function runIngestion(): Promise<void> {
   ensureCacheDir();
   const { products, skipped } = ingestExcelOnly();
@@ -287,3 +485,4 @@ async function runIngestion(): Promise<void> {
 
 export const pipeline = new Pipeline();
 
+export const __testing = { mergeFilters, sortProducts, computeRefinementOptions, toApiProduct };

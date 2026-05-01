@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyFilters, type Filters } from './filters.js';
+import { applyFilters, productMatchesFilters } from './filters.js';
 import type { Product } from '../ingestion/types.js';
 import type { HybridHit } from './hybrid.js';
 
@@ -41,14 +41,24 @@ describe('applyFilters', () => {
     expect(out.map((h) => h.product.offerId)).toEqual([1]);
   });
 
-  it('brand filter is case-insensitive substring', () => {
+  it('brand filter is case-insensitive substring (single brand)', () => {
     const hits = [
       hit(p({ offerId: 1, vendor: { raw: 'PULSE (Китай)', brand: 'PULSE' } })),
       hit(p({ offerId: 2, vendor: { raw: 'Italiana Ferramenta (Италия)', brand: 'Italiana Ferramenta' } })),
       hit(p({ offerId: 3, vendor: { raw: 'Permo (Италия)', brand: 'Permo' } })),
     ];
-    const out = applyFilters(hits, { brand: 'italiana' });
+    const out = applyFilters(hits, { brands: ['italiana'] });
     expect(out.map((h) => h.product.offerId)).toEqual([2]);
+  });
+
+  it('brand filter accepts multiple brands as OR', () => {
+    const hits = [
+      hit(p({ offerId: 1, vendor: { raw: 'PULSE (Китай)', brand: 'PULSE' } })),
+      hit(p({ offerId: 2, vendor: { raw: 'Italiana Ferramenta (Италия)', brand: 'Italiana Ferramenta' } })),
+      hit(p({ offerId: 3, vendor: { raw: 'Permo (Италия)', brand: 'Permo' } })),
+    ];
+    const out = applyFilters(hits, { brands: ['pulse', 'permo'] });
+    expect(out.map((h) => h.product.offerId).sort()).toEqual([1, 3]);
   });
 
   it('brand filter drops products without a brand', () => {
@@ -56,7 +66,7 @@ describe('applyFilters', () => {
       hit(p({ offerId: 1, vendor: { raw: 'Италия' } })),
       hit(p({ offerId: 2, vendor: { raw: 'PULSE (Китай)', brand: 'PULSE' } })),
     ];
-    const out = applyFilters(hits, { brand: 'PULSE' });
+    const out = applyFilters(hits, { brands: ['PULSE'] });
     expect(out.map((h) => h.product.offerId)).toEqual([2]);
   });
 
@@ -70,13 +80,14 @@ describe('applyFilters', () => {
     expect(applyFilters(hits, { status: 'Распродажа' }).map((h) => h.product.offerId)).toEqual([2]);
   });
 
-  it('unit filter exact-matches', () => {
+  it('unit filter exact-matches against units array', () => {
     const hits = [
       hit(p({ offerId: 1, unit: 'шт' })),
       hit(p({ offerId: 2, unit: 'пар' })),
       hit(p({ offerId: 3, unit: 'компл' })),
     ];
-    expect(applyFilters(hits, { unit: 'пар' }).map((h) => h.product.offerId)).toEqual([2]);
+    expect(applyFilters(hits, { units: ['пар'] }).map((h) => h.product.offerId)).toEqual([2]);
+    expect(applyFilters(hits, { units: ['пар', 'компл'] }).map((h) => h.product.offerId).sort()).toEqual([2, 3]);
   });
 
   it('city filter keeps products with stock>0 in any matching warehouse', () => {
@@ -124,10 +135,22 @@ describe('applyFilters', () => {
       })),
     ];
     const out = applyFilters(hits, {
-      brand: 'Italiana',
-      unit: 'пар',
+      brands: ['Italiana'],
+      units: ['пар'],
       cities: ['Москва, Кантемировская'],
     });
     expect(out.map((h) => h.product.offerId)).toEqual([1]);
+  });
+});
+
+describe('productMatchesFilters', () => {
+  it('returns true when no filters', () => {
+    expect(productMatchesFilters(p({ offerId: 1 }), {})).toBe(true);
+  });
+
+  it('returns false when requireAvailable=true and product unavailable', () => {
+    expect(
+      productMatchesFilters(p({ offerId: 1, available: false }), { requireAvailable: true }),
+    ).toBe(false);
   });
 });

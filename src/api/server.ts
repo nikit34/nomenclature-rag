@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { logger } from '../observability/logger.js';
 import { pipeline } from './pipeline.js';
 import { registerAskRoute } from './routes/ask.js';
+import { registerFeedbackRoute } from './routes/feedback.js';
 import { registerHealthRoute } from './routes/health.js';
 
 const UI_DIR = path.join(config.ROOT, 'src', 'ui');
@@ -20,6 +21,7 @@ async function main() {
 
   await registerHealthRoute(app);
   await registerAskRoute(app);
+  await registerFeedbackRoute(app);
 
   await app.register(staticPlugin, {
     root: UI_DIR,

@@ -15,7 +15,7 @@ function checkCase(c: GoldenCase, r: AskResult): CaseResult {
   const e = c.expects;
   const offerIds = r.products.map((p) => p.offerId);
   const codes = r.products.map((p) => p.vendorCode);
-  const brands = r.products.map((p) => p.vendor);
+  const brandsOrVendors = r.products.map((p) => p.vendor.brand ?? p.vendor.raw);
   const units = r.products.map((p) => p.unit);
 
   if (e.anyOfOfferIds && !e.anyOfOfferIds.some((id) => offerIds.includes(id))) {
@@ -38,12 +38,12 @@ function checkCase(c: GoldenCase, r: AskResult): CaseResult {
         reasons.push('empty products');
       }
     }
-    for (const b of brands) if (!b.toLowerCase().includes(want)) reasons.push(`vendor mismatch: ${b}`);
+    for (const b of brandsOrVendors) if (!b.toLowerCase().includes(want)) reasons.push(`vendor mismatch: ${b}`);
   }
   if (e.allInCities && r.products.length > 0) {
     for (const p of r.products) {
       const ok = e.allInCities.some((c) => {
-        const s = p.stocks[c];
+        const s = p.stocks.find((entry) => entry.city === c);
         return s && s.qty > 0;
       });
       if (!ok) reasons.push(`offer ${p.offerId} has no stock in ${e.allInCities.join('|')}`);
@@ -89,9 +89,14 @@ export async function runEval(opts: { only?: string[] } = {}): Promise<CaseResul
         passed: false,
         reasons: [`error: ${message}`],
         result: {
+          requestId: '',
           summary: '',
           products: [],
           insufficient_data: true,
+          refinement_options: { cities: [], brands: [], units: [], statuses: [] },
+          filters_applied: {},
+          filters_inferred: {},
+          total_available: 0,
           diagnostics: {
             sanitized_query: '',
             injection_detected: false,
