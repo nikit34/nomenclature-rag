@@ -1,0 +1,10 @@
+# Append to ~/.cloudflared/config.yml on 192.168.1.69 (tunnel: firstmessage)
+# Order matters: this entry must come BEFORE any catch-all (http_status:404).
+ingress:
+  - hostname: nomenclature.firstmessage.ru
+    service: http://localhost:3000
+    originRequest:
+      connectTimeout: 30s
+      noTLSVerify: false
+  # ... existing entries ...
+  # - service: http_status:404

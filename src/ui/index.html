@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Консультант по номенклатуре</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --card: #181b22;
+        --border: #2a2f3a;
+        --text: #e8eaef;
+        --muted: #9aa1ad;
+        --accent: #4f9eff;
+        --green: #4cc38a;
+        --red: #ff6b6b;
+        --orange: #f0a958;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        background: var(--bg); color: var(--text);
+      }
+      header {
+        padding: 18px 24px; border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; gap: 12px;
+      }
+      header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+      header .pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--border); color: var(--muted); }
+      main { max-width: 960px; margin: 0 auto; padding: 24px; }
+      .form { display: flex; gap: 8px; margin-bottom: 24px; }
+      .form input {
+        flex: 1; padding: 12px 14px; background: var(--card); color: var(--text);
+        border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
+      }
+      .form input:focus { outline: none; border-color: var(--accent); }
+      .form button {
+        padding: 12px 20px; border-radius: 8px; border: 0; background: var(--accent);
+        color: white; font-weight: 600; cursor: pointer; font-size: 14px;
+      }
+      .form button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 24px; }
+      .examples button {
+        background: var(--card); color: var(--muted); border: 1px solid var(--border);
+        border-radius: 14px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+      }
+      .examples button:hover { color: var(--text); border-color: var(--accent); }
+      .summary { padding: 16px; background: var(--card); border-radius: 8px; border: 1px solid var(--border); margin-bottom: 16px; }
+      .clarifying { padding: 12px 16px; background: rgba(240, 169, 88, 0.1); border-left: 3px solid var(--orange); border-radius: 4px; margin-bottom: 16px; }
+      .empty { padding: 24px; text-align: center; color: var(--muted); }
+      .product { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+      .product .row1 { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+      .product .name { font-weight: 600; }
+      .product .price { color: var(--green); font-weight: 600; white-space: nowrap; }
+      .product .meta { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+      .product .meta span { margin-right: 12px; }
+      .product .explanation { font-size: 13px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+      .stocks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+      .stocks .stock { padding: 2px 8px; border-radius: 4px; font-size: 11px; background: var(--border); color: var(--muted); }
+      .stocks .stock.has { color: var(--green); }
+      .stocks .stock.zero { opacity: 0.4; }
+      .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+      .badge.novelty { background: rgba(79, 158, 255, 0.2); color: var(--accent); }
+      .badge.sale { background: rgba(255, 107, 107, 0.2); color: var(--red); }
+      details { margin-top: 16px; padding: 12px; background: var(--card); border-radius: 8px; border: 1px solid var(--border); font-size: 12px; }
+      details summary { cursor: pointer; color: var(--muted); }
+      details pre { color: var(--muted); white-space: pre-wrap; word-break: break-all; max-height: 360px; overflow: auto; }
+      .error { padding: 12px 16px; border-left: 3px solid var(--red); background: rgba(255, 107, 107, 0.1); margin-bottom: 16px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Консультант по номенклатуре</h1>
+      <span class="pill" id="status">проверка...</span>
+    </header>
+    <main>
+      <form class="form" id="form">
+        <input id="q" type="text" placeholder="Например: винты M4 длиной 45 мм, оцинкованные" autocomplete="off" />
+        <button type="submit" id="submit">Спросить</button>
+      </form>
+      <div class="examples">
+        <button data-q="Подберите винты M4 длиной около 45 мм, оцинкованные">винты M4 45мм</button>
+        <button data-q="артикул 7033 50">артикул 7033 50</button>
+        <button data-q="KAIMAN в хроме - сравните цены">KAIMAN сравнить</button>
+        <button data-q="Italiana Ferramenta на складе в Москве">Italiana Ferramenta в Москве</button>
+        <button data-q="Менсолодержатели для стеклянных полок до 30 мм">для стекла до 30мм</button>
+        <button data-q="Что продаётся парами, а не штуками?">парами</button>
+        <button data-q="ZZ150 M4 X45 IB цена и наличие">ZZ150 M4 X45 IB</button>
+      </div>
+      <div id="result"></div>
+    </main>
+    <script>
+      const $ = (s) => document.querySelector(s);
+      const status = $('#status');
+      const form = $('#form');
+      const q = $('#q');
+      const submit = $('#submit');
+      const result = $('#result');
+      const examples = document.querySelectorAll('.examples button');
+
+      async function checkHealth() {
+        try {
+          const r = await fetch('/api/health');
+          const j = await r.json();
+          if (j.status === 'ready') {
+            status.textContent = 'готов';
+            status.style.color = 'var(--green)';
+          } else {
+            status.textContent = 'прогрев индекса...';
+            setTimeout(checkHealth, 2000);
+          }
+        } catch {
+          status.textContent = 'недоступен';
+          status.style.color = 'var(--red)';
+        }
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        }[c]));
+      }
+
+      function renderResult(data) {
+        if (!data || !data.summary) {
+          result.innerHTML = '<div class="empty">Пустой ответ</div>';
+          return;
+        }
+        const parts = [];
+        parts.push(`<div class="summary">${escapeHtml(data.summary)}</div>`);
+        if (data.clarifying_question) {
+          parts.push(`<div class="clarifying"><b>Уточнение:</b> ${escapeHtml(data.clarifying_question)}</div>`);
+        }
+        if (!data.products || data.products.length === 0) {
+          parts.push('<div class="empty">Подходящих товаров не найдено.</div>');
+        } else {
+          for (const p of data.products) {
+            const stocksHtml = Object.entries(p.stocks)
+              .map(([city, s]) => {
+                const cls = s.qty > 0 ? 'stock has' : 'stock zero';
+                const q = s.approx ? `${s.qty}+` : s.qty;
+                return `<span class="${cls}">${escapeHtml(city)}: ${q}</span>`;
+              })
+              .join('');
+            const badge = p.status === 'Новинка'
+              ? '<span class="badge novelty">Новинка</span>'
+              : p.status === 'Распродажа'
+                ? '<span class="badge sale">Распродажа</span>'
+                : '';
+            parts.push(`
+              <div class="product">
+                <div class="row1">
+                  <div>
+                    <div class="name">${escapeHtml(p.name)} ${badge}</div>
+                    <div class="meta">
+                      <span>артикул: <b>${escapeHtml(p.vendorCode)}</b></span>
+                      <span>${escapeHtml(p.vendor)}</span>
+                      <span>ед: ${escapeHtml(p.unit ?? '-')}</span>
+                    </div>
+                  </div>
+                  <div class="price">${p.price} ₽</div>
+                </div>
+                <div class="stocks">${stocksHtml}</div>
+                <div class="explanation">${escapeHtml(p.explanation)}</div>
+              </div>
+            `);
+          }
+        }
+        if (data.diagnostics) {
+          const d = data.diagnostics;
+          const cost = (d.cost_usd * 1000).toFixed(3);
+          parts.push(`<details><summary>Diagnostics (latency ${d.latency_ms}ms · ~$${cost} ‰ · retrieved ${d.retrieved_count} → ${d.after_filter_count})</summary><pre>${escapeHtml(JSON.stringify(d, null, 2))}</pre></details>`);
+        }
+        result.innerHTML = parts.join('');
+      }
+
+      async function ask(query) {
+        result.innerHTML = '<div class="empty">Думаю...</div>';
+        submit.disabled = true;
+        try {
+          const r = await fetch('/api/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query }),
+          });
+          const j = await r.json();
+          if (!r.ok) {
+            result.innerHTML = `<div class="error">Ошибка: ${escapeHtml(j.message || j.error || r.statusText)}</div>`;
+            return;
+          }
+          renderResult(j);
+        } catch (e) {
+          result.innerHTML = `<div class="error">Сеть: ${escapeHtml(e.message)}</div>`;
+        } finally {
+          submit.disabled = false;
+        }
+      }
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const v = q.value.trim();
+        if (v) ask(v);
+      });
+      examples.forEach((b) => b.addEventListener('click', () => {
+        q.value = b.dataset.q;
+        ask(b.dataset.q);
+      }));
+      checkHealth();
+    </script>
+  </body>
+</html>

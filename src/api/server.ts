@@ -1,0 +1,42 @@
+import Fastify from 'fastify';
+import staticPlugin from '@fastify/static';
+import path from 'node:path';
+import { config } from '../config.js';
+import { logger } from '../observability/logger.js';
+import { pipeline } from './pipeline.js';
+import { registerAskRoute } from './routes/ask.js';
+import { registerHealthRoute } from './routes/health.js';
+
+const UI_DIR = path.join(config.ROOT, 'src', 'ui');
+
+async function main() {
+  const app = Fastify({ logger: false, bodyLimit: 64 * 1024 });
+
+  app.addHook('onRequest', (req, _reply, done) => {
+    const { method, url } = req;
+    logger.info({ method, url }, 'request');
+    done();
+  });
+
+  await registerHealthRoute(app);
+  await registerAskRoute(app);
+
+  await app.register(staticPlugin, {
+    root: UI_DIR,
+    prefix: '/',
+    decorateReply: false,
+  });
+
+  pipeline.init().catch((err) => {
+    logger.error({ err }, 'pipeline init failed');
+    process.exit(1);
+  });
+
+  await app.listen({ host: config.HOST, port: config.PORT });
+  logger.info({ host: config.HOST, port: config.PORT }, 'server listening');
+}
+
+main().catch((err) => {
+  logger.error({ err }, 'fatal');
+  process.exit(1);
+});
