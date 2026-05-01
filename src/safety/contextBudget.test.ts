@@ -31,8 +31,9 @@ function makeHit(overrides: Partial<Product> = {}): HybridHit {
 
 describe('tokensApprox', () => {
   it('returns 0 for empty', () => expect(tokensApprox('')).toBe(0));
-  it('approximates ~3.6 chars per token', () => {
-    expect(tokensApprox('a'.repeat(36))).toBe(10);
+  it('approximates ~2.7 chars per token (cyrillic-friendly)', () => {
+    // 27 chars / 2.7 = 10
+    expect(tokensApprox('a'.repeat(27))).toBe(10);
   });
 });
 

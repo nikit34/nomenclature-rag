@@ -107,9 +107,11 @@ export async function runEval(opts: { only?: string[] } = {}): Promise<CaseResul
             context_tokens: 0,
             context_truncated: false,
             hallucinated_offer_ids: [],
+            insufficient_data_reason: 'llm_said_no',
             llm_usage: { inputTokens: 0, outputTokens: 0 },
             cost_usd: 0,
             latency_ms: 0,
+            cached: false,
           },
         },
       });

@@ -12,6 +12,7 @@ export const ANSWER_SCHEMA = z.object({
     .max(5)
     .default([]),
   clarifying_question: z.string().max(400).optional(),
+  clarifying_options: z.array(z.string().min(1).max(80)).max(5).optional(),
   insufficient_data: z.boolean().default(false),
 });
 
@@ -47,6 +48,13 @@ export const ANSWER_TOOL_INPUT_SCHEMA = {
       type: 'string',
       description:
         'Если запрос неоднозначен (или пуст результат) - уточняющий вопрос. Иначе пропусти.',
+    },
+    clarifying_options: {
+      type: 'array',
+      maxItems: 5,
+      items: { type: 'string', maxLength: 80 },
+      description:
+        'Если задан clarifying_question - 2-4 коротких варианта ответа (например: ["в Москве", "в СПб", "из наличия"]). Будут показаны юзеру кнопками и дописываться к запросу при клике.',
     },
     insufficient_data: {
       type: 'boolean',

@@ -1,6 +1,6 @@
 import type { HybridHit } from '../search/hybrid.js';
 
-const APPROX_CHARS_PER_TOKEN = 3.6;
+const APPROX_CHARS_PER_TOKEN = 2.7;
 
 export function tokensApprox(text: string): number {
   return Math.ceil(text.length / APPROX_CHARS_PER_TOKEN);
@@ -14,9 +14,12 @@ export type ContextItem = {
 
 export function formatProductForContext(hit: HybridHit, idx: number): string {
   const p = hit.product;
-  const stocksList = Object.entries(p.stocks)
-    .map(([city, s]) => `${city}: ${s.approx ? `${s.qty}+` : s.qty}`)
-    .join('; ');
+  const stocksWithQty = Object.entries(p.stocks).filter(([, s]) => s.qty > 0);
+  const stocksList = stocksWithQty.length
+    ? stocksWithQty
+        .map(([city, s]) => `${city}: ${s.approx ? `${s.qty}+` : s.qty}`)
+        .join('; ')
+    : 'нет в наличии';
   const numAttrs = Object.entries(p.numericAttrs)
     .map(([k, v]) => `${k}=${v}`)
     .join(', ');

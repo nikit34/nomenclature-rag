@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # Anthropic key isn't actually used by typecheck/tests/retrieval-eval
+      # (retrieval is LLM-free), but config.ts requires it to be present at boot.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'sk-ant-ci-dummy-key-no-network-calls-made-here' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      # Cache the embedding model + computed product embeddings so we don't
+      # re-download 700MB of weights and re-embed 13k products on every run.
+      # Key is bound to the dataset hash — when the xlsx changes, cache rebuilds.
+      - name: Cache embeddings + model
+        uses: actions/cache@v4
+        with:
+          path: cache
+          key: rag-cache-${{ hashFiles('data/rag_assist.xlsx', 'src/ingestion/**', 'src/search/embeddings.ts', 'package-lock.json') }}
+
+      - name: Retrieval eval (LLM-free, deterministic)
+        run: npm run eval:retrieval

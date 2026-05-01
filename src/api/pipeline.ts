@@ -26,6 +26,7 @@ import { validateAnswer } from '../safety/validateAnswer.js';
 import { generateAnswer, type LLMUsage } from '../llm/client.js';
 import { buildUserMessage, formatRetrieved } from '../llm/prompt.js';
 import { estimateCostUsd } from '../observability/cost.js';
+import * as responseCache from './responseCache.js';
 
 export type AskFilters = {
   cities?: Warehouse[];
@@ -74,6 +75,11 @@ export type RefinementOptions = {
   statuses: FacetOption[];
 };
 
+export type InsufficientDataReason =
+  | 'llm_said_no'
+  | 'all_hallucinated'
+  | 'llm_and_validation';
+
 export type AskDiagnostics = {
   sanitized_query: string;
   injection_detected: boolean;
@@ -84,9 +90,11 @@ export type AskDiagnostics = {
   context_tokens: number;
   context_truncated: boolean;
   hallucinated_offer_ids: number[];
+  insufficient_data_reason: InsufficientDataReason | null;
   llm_usage: LLMUsage;
   cost_usd: number;
   latency_ms: number;
+  cached: boolean;
 };
 
 export type AskResult = {
@@ -94,6 +102,7 @@ export type AskResult = {
   summary: string;
   products: ApiProduct[];
   clarifying_question?: string;
+  clarifying_options?: string[];
   insufficient_data: boolean;
   refinement_options: RefinementOptions;
   filters_applied: AskFilters;
@@ -112,22 +121,55 @@ export type RetrievalResult = {
   totalAvailable: number;
 };
 
+export type ApiProductPreview = Omit<ApiProduct, 'explanation'>;
+
+export type RetrievedPayload = {
+  requestId: string;
+  products: ApiProductPreview[];
+  refinement_options: RefinementOptions;
+  filters_applied: AskFilters;
+  filters_inferred: AskFilters;
+  total_available: number;
+};
+
+export type StreamEvent =
+  | { type: 'retrieved'; data: RetrievedPayload }
+  | { type: 'final'; data: AskResult }
+  | { type: 'error'; data: { message: string } };
+
 const STATUS_VALUES = ['Распродажа', 'Новинка'] as const;
+
+export type InitPhase = 'idle' | 'parse' | 'embed' | 'index' | 'ready' | 'error';
+
+export type InitStatus = {
+  ready: boolean;
+  phase: InitPhase;
+  done?: number;
+  total?: number;
+  error?: string;
+};
 
 export class Pipeline {
   private deps!: HybridDeps;
   private ready = false;
   private buildPromise: Promise<void> | null = null;
+  private initStatus: { phase: InitPhase; done?: number; total?: number; error?: string } = {
+    phase: 'idle',
+  };
 
   async init(): Promise<void> {
     if (this.ready) return;
     if (this.buildPromise) return this.buildPromise;
-    this.buildPromise = (async () => {
+    const setStatus = (s: typeof this.initStatus) => {
+      this.initStatus = s;
+    };
+    const promise = (async () => {
       const t0 = Date.now();
       if (!isCacheValid()) {
         logger.warn('cache missing or stale - running ingestion before serving');
-        await runIngestion();
+        await runIngestion(setStatus);
       }
+      setStatus({ phase: 'index' });
       const products = loadProducts();
       const productIndexById = new Map<number, number>();
       products.forEach((p, i) => productIndexById.set(p.offerId, i));
@@ -150,16 +192,33 @@ export class Pipeline {
         brandIndex,
       };
       this.ready = true;
+      setStatus({ phase: 'ready' });
       logger.info(
         { products: products.length, vectors: vectors.length, ms: Date.now() - t0 },
         'pipeline ready',
       );
     })();
-    return this.buildPromise;
+    this.buildPromise = promise;
+    promise.catch((err) => {
+      if (this.buildPromise === promise) this.buildPromise = null;
+      this.ready = false;
+      this.initStatus = { phase: 'error', error: err instanceof Error ? err.message : String(err) };
+      logger.error({ err }, 'pipeline init failed; will retry on next init()');
+    });
+    return promise;
   }
 
   isReady(): boolean {
     return this.ready;
+  }
+
+  getStatus(): InitStatus {
+    const s = this.initStatus;
+    const out: InitStatus = { ready: this.ready, phase: s.phase };
+    if (s.done !== undefined) out.done = s.done;
+    if (s.total !== undefined) out.total = s.total;
+    if (s.error !== undefined) out.error = s.error;
+    return out;
   }
 
   inferFilters(query: string): AskFilters {
@@ -245,69 +304,134 @@ export class Pipeline {
   async ask(rawQuery: string, opts: AskOptions = {}): Promise<AskResult> {
     if (!this.ready) throw new Error('pipeline not ready');
     const tStart = Date.now();
-    const requestId = randomUUID();
-    const {
-      hits: finalHits,
-      sanitized,
-      filtersInferred,
-      filtersApplied,
-      cities,
-      retrievedCount,
-      totalAvailable,
-    } = await this.retrieve(rawQuery, opts);
-
-    const ctx = buildContext(finalHits, config.MAX_CONTEXT_TOKENS);
-    const retrievedBlock = formatRetrieved(ctx.items);
-    const userMessage = buildUserMessage(retrievedBlock, sanitized.query, {
-      injectionDetected: sanitized.injectionDetected,
-      truncated: sanitized.truncated,
-    });
-
-    const { answer, usage } = await generateAnswer(userMessage);
-    const validation = validateAnswer(answer, finalHits);
-
-    const validProductMap = new Map<number, Product>();
-    for (const p of validation.validProducts) validProductMap.set(p.offerId, p);
-
-    const primaryCity: Warehouse | null = filtersApplied.cities?.[0] ?? null;
-
-    let products: ApiProduct[] = [];
-    for (const ap of answer.products) {
-      const p = validProductMap.get(ap.offerId);
-      if (!p) continue;
-      products.push(toApiProduct(p, ap.explanation, primaryCity));
+    const cacheKey = opts.debug ? null : responseCache.makeKey(rawQuery, opts);
+    if (cacheKey) {
+      const hit = responseCache.get(cacheKey);
+      if (hit) {
+        return {
+          ...hit,
+          requestId: randomUUID(),
+          diagnostics: {
+            ...hit.diagnostics,
+            latency_ms: Date.now() - tStart,
+            cached: true,
+          },
+        };
+      }
     }
-
-    products = sortProducts(products, opts.sort ?? 'relevance');
-
-    const refinement = computeRefinementOptions(finalHits);
-
-    const result: AskResult = {
+    const requestId = randomUUID();
+    const retrieval = await this.retrieve(rawQuery, opts);
+    const { answer, usage, ctx } = await this.runLLM(retrieval);
+    const validation = validateAnswer(answer, retrieval.hits);
+    const result = composeFinalResult({
       requestId,
-      summary: answer.summary,
-      products,
-      clarifying_question: answer.clarifying_question,
-      insufficient_data: answer.insufficient_data || products.length === 0,
-      refinement_options: refinement,
-      filters_applied: filtersApplied,
-      filters_inferred: filtersInferred,
-      total_available: totalAvailable,
-      diagnostics: {
-        sanitized_query: sanitized.query,
-        injection_detected: sanitized.injectionDetected,
-        truncated_query: sanitized.truncated,
-        cities_inferred: cities,
-        retrieved_count: retrievedCount,
-        after_filter_count: finalHits.length,
-        context_tokens: ctx.totalTokens,
-        context_truncated: ctx.truncated,
-        hallucinated_offer_ids: validation.hallucinatedOfferIds,
-        llm_usage: usage,
-        cost_usd: estimateCostUsd(usage),
-        latency_ms: Date.now() - tStart,
+      retrieval,
+      answer,
+      usage,
+      ctx,
+      validation,
+      sortMode: opts.sort ?? 'relevance',
+      preserveRetrievalOrder: false,
+      tStart,
+    });
+    if (cacheKey) responseCache.put(cacheKey, result);
+    return result;
+  }
+
+  /**
+   * 2-phase streaming. Yields `retrieved` event with preview products immediately,
+   * then `final` event after the LLM completes. Retrieval order is preserved
+   * across both events so the UI doesn't reflow when `final` arrives.
+   */
+  async *askStream(
+    rawQuery: string,
+    opts: AskOptions = {},
+    signal?: AbortSignal,
+  ): AsyncGenerator<StreamEvent> {
+    if (!this.ready) throw new Error('pipeline not ready');
+    const tStart = Date.now();
+    const cacheKey = opts.debug ? null : responseCache.makeKey(rawQuery, opts);
+    if (cacheKey) {
+      const hit = responseCache.get(cacheKey);
+      if (hit) {
+        const requestId = randomUUID();
+        yield {
+          type: 'retrieved',
+          data: {
+            requestId,
+            products: hit.products.map(({ explanation: _e, ...rest }) => rest),
+            refinement_options: hit.refinement_options,
+            filters_applied: hit.filters_applied,
+            filters_inferred: hit.filters_inferred,
+            total_available: hit.total_available,
+          },
+        };
+        yield {
+          type: 'final',
+          data: {
+            ...hit,
+            requestId,
+            diagnostics: {
+              ...hit.diagnostics,
+              latency_ms: Date.now() - tStart,
+              cached: true,
+            },
+          },
+        };
+        return;
+      }
+    }
+    const requestId = randomUUID();
+    const retrieval = await this.retrieve(rawQuery, opts);
+    if (signal?.aborted) return;
+
+    const primaryCity: Warehouse | null = retrieval.filtersApplied.cities?.[0] ?? null;
+    const previewProducts = retrieval.hits
+      .slice(0, config.TOP_K_FINAL)
+      .map((h) => toApiProductPreview(h.product, primaryCity));
+    const refinement = computeRefinementOptions(retrieval.hits);
+
+    yield {
+      type: 'retrieved',
+      data: {
+        requestId,
+        products: previewProducts,
+        refinement_options: refinement,
+        filters_applied: retrieval.filtersApplied,
+        filters_inferred: retrieval.filtersInferred,
+        total_available: retrieval.totalAvailable,
       },
     };
-    return result;
+
+    const { answer, usage, ctx } = await this.runLLM(retrieval, signal);
+    if (signal?.aborted) return;
+
+    const validation = validateAnswer(answer, retrieval.hits);
+    const result = composeFinalResult({
+      requestId,
+      retrieval,
+      answer,
+      usage,
+      ctx,
+      validation,
+      sortMode: opts.sort ?? 'relevance',
+      preserveRetrievalOrder: true,
+      tStart,
+    });
+    if (cacheKey) responseCache.put(cacheKey, result);
+
+    yield { type: 'final', data: result };
+  }
+
+  private async runLLM(retrieval: RetrievalResult, signal?: AbortSignal) {
+    const ctx = buildContext(retrieval.hits, config.MAX_CONTEXT_TOKENS);
+    const retrievedBlock = formatRetrieved(ctx.items);
+    const userMessage = buildUserMessage(retrievedBlock, retrieval.sanitized.query, {
+      injectionDetected: retrieval.sanitized.injectionDetected,
+      truncated: retrieval.sanitized.truncated,
+    });
+    const { answer, usage } = await generateAnswer(userMessage, signal);
+    return { answer, usage, ctx };
   }
 
   private async narrowRetrieval(query: string, filters: Filters): Promise<HybridHit[]> {
@@ -358,6 +482,19 @@ export class Pipeline {
   }
 }
 
+function computeInsufficientReason(
+  llmSaidInsufficient: boolean,
+  hallucinatedCount: number,
+  finalProductCount: number,
+): InsufficientDataReason | null {
+  if (finalProductCount > 0) return null;
+  const validationDropped = hallucinatedCount > 0;
+  if (llmSaidInsufficient && validationDropped) return 'llm_and_validation';
+  if (llmSaidInsufficient) return 'llm_said_no';
+  if (validationDropped) return 'all_hallucinated';
+  return 'llm_said_no';
+}
+
 function mergeFilters(inferred: AskFilters, user: AskFilters | undefined): AskFilters {
   if (!user) return { ...inferred };
   const pickArray = <T>(userVal: T[] | undefined, inferredVal: T[] | undefined): T[] | undefined => {
@@ -373,7 +510,7 @@ function mergeFilters(inferred: AskFilters, user: AskFilters | undefined): AskFi
   };
 }
 
-function toApiProduct(p: Product, explanation: string, primaryCity: Warehouse | null): ApiProduct {
+function toApiProductPreview(p: Product, primaryCity: Warehouse | null): ApiProductPreview {
   const stocksRaw = WAREHOUSES.map<ApiStock>((city) => {
     const s: Stock | undefined = p.stocks[city];
     return { city, qty: s?.qty ?? 0, approx: s?.approx ?? false };
@@ -386,7 +523,7 @@ function toApiProduct(p: Product, explanation: string, primaryCity: Warehouse | 
   if (p.prices.wholesale !== undefined) prices.wholesale = p.prices.wholesale;
   if (p.prices.usd !== undefined) prices.usd = p.prices.usd;
 
-  const out: ApiProduct = {
+  const out: ApiProductPreview = {
     offerId: p.offerId,
     name: p.name,
     vendorCode: p.vendorCode,
@@ -405,11 +542,89 @@ function toApiProduct(p: Product, explanation: string, primaryCity: Warehouse | 
     stocks: sorted,
     attrs: p.attrs,
     numericAttrs: p.numericAttrs,
-    explanation,
   };
   if (p.status !== undefined) out.status = p.status;
   if (p.hitSales !== undefined) out.hitSales = p.hitSales;
   return out;
+}
+
+function toApiProduct(p: Product, explanation: string, primaryCity: Warehouse | null): ApiProduct {
+  return { ...toApiProductPreview(p, primaryCity), explanation };
+}
+
+type ComposeArgs = {
+  requestId: string;
+  retrieval: RetrievalResult;
+  answer: import('../llm/schema.js').RawAnswer;
+  usage: LLMUsage;
+  ctx: { totalTokens: number; truncated: boolean };
+  validation: { hallucinatedOfferIds: number[]; validProducts: Product[] };
+  sortMode: AskSort;
+  preserveRetrievalOrder: boolean;
+  tStart: number;
+};
+
+function composeFinalResult(args: ComposeArgs): AskResult {
+  const { requestId, retrieval, answer, usage, ctx, validation, sortMode, preserveRetrievalOrder, tStart } = args;
+  const validProductMap = new Map<number, Product>();
+  for (const p of validation.validProducts) validProductMap.set(p.offerId, p);
+
+  const explanationByOfferId = new Map<number, string>();
+  for (const ap of answer.products) explanationByOfferId.set(ap.offerId, ap.explanation);
+
+  const primaryCity: Warehouse | null = retrieval.filtersApplied.cities?.[0] ?? null;
+
+  let products: ApiProduct[];
+  if (preserveRetrievalOrder) {
+    // Streaming path: cards already shown in retrieval order; only attach explanations.
+    products = retrieval.hits
+      .slice(0, config.TOP_K_FINAL)
+      .map((h) => toApiProduct(h.product, explanationByOfferId.get(h.product.offerId) ?? '', primaryCity));
+  } else {
+    products = [];
+    for (const ap of answer.products) {
+      const p = validProductMap.get(ap.offerId);
+      if (!p) continue;
+      products.push(toApiProduct(p, ap.explanation, primaryCity));
+    }
+    products = sortProducts(products, sortMode);
+  }
+
+  const refinement = computeRefinementOptions(retrieval.hits);
+  const insufficientReason = computeInsufficientReason(
+    answer.insufficient_data,
+    validation.hallucinatedOfferIds.length,
+    products.length,
+  );
+
+  return {
+    requestId,
+    summary: answer.summary,
+    products,
+    clarifying_question: answer.clarifying_question,
+    clarifying_options: answer.clarifying_options,
+    insufficient_data: answer.insufficient_data || products.length === 0,
+    refinement_options: refinement,
+    filters_applied: retrieval.filtersApplied,
+    filters_inferred: retrieval.filtersInferred,
+    total_available: retrieval.totalAvailable,
+    diagnostics: {
+      sanitized_query: retrieval.sanitized.query,
+      injection_detected: retrieval.sanitized.injectionDetected,
+      truncated_query: retrieval.sanitized.truncated,
+      cities_inferred: retrieval.cities,
+      retrieved_count: retrieval.retrievedCount,
+      after_filter_count: retrieval.hits.length,
+      context_tokens: ctx.totalTokens,
+      context_truncated: ctx.truncated,
+      hallucinated_offer_ids: validation.hallucinatedOfferIds,
+      insufficient_data_reason: insufficientReason,
+      llm_usage: usage,
+      cost_usd: estimateCostUsd(usage),
+      latency_ms: Date.now() - tStart,
+      cached: false,
+    },
+  };
 }
 
 function sortStocks(stocks: ApiStock[], primaryCity: Warehouse | null): ApiStock[] {
@@ -465,15 +680,20 @@ function computeRefinementOptions(hits: HybridHit[]): RefinementOptions {
   };
 }
 
-async function runIngestion(): Promise<void> {
+async function runIngestion(
+  setStatus?: (s: { phase: InitPhase; done?: number; total?: number; error?: string }) => void,
+): Promise<void> {
   ensureCacheDir();
+  setStatus?.({ phase: 'parse' });
   const { products, skipped } = ingestExcelOnly();
   logger.info({ count: products.length, skipped }, 'parse+normalize done');
   saveProducts(products);
   logger.info({ model: config.EMBEDDING_MODEL }, 'computing embeddings (slow)');
   const t = Date.now();
   const texts = products.map((p) => p.searchText);
+  setStatus?.({ phase: 'embed', done: 0, total: texts.length });
   const vectors = await embedBatch(texts, 32, (done, total) => {
+    setStatus?.({ phase: 'embed', done, total });
     if (done % 32 === 0 || done === total) {
       const pct = ((done / total) * 100).toFixed(1);
       console.log(`[embed] ${done}/${total} (${pct}%) elapsed=${((Date.now() - t) / 1000).toFixed(0)}s`);

@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Консультант по номенклатуре</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='6'%20fill='%234f9eff'/%3E%3Ctext%20x='16'%20y='22'%20font-family='ui-sans-serif,system-ui'%20font-size='18'%20font-weight='700'%20text-anchor='middle'%20fill='%23ffffff'%3EК%3C/text%3E%3C/svg%3E" />
     <style>
       :root {
         --bg: #0f1115;
@@ -37,6 +38,19 @@
         top: 0;
         background: var(--bg);
         z-index: 10;
+      }
+      .progress-bar {
+        position: absolute;
+        left: 0; right: 0; bottom: -1px;
+        height: 2px;
+        background: transparent;
+        overflow: hidden;
+      }
+      .progress-bar .fill {
+        height: 100%;
+        width: 0;
+        background: var(--accent);
+        transition: width 200ms ease-out;
       }
       header h1 { margin: 0; font-size: 15px; font-weight: 600; }
       .pill {
@@ -213,6 +227,17 @@
         border-radius: 4px;
         margin-bottom: 12px;
       }
+      .clarifying .options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .clarifying .options button {
+        background: var(--card);
+        color: var(--text);
+        border: 1px solid var(--orange);
+        border-radius: 14px;
+        padding: 5px 12px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .clarifying .options button:hover { background: rgba(240, 169, 88, 0.15); }
       .refinements {
         margin-bottom: 16px;
         font-size: 12px;
@@ -338,6 +363,12 @@
         padding-top: 8px;
         border-top: 1px dashed var(--border);
       }
+      .product .explanation.placeholder {
+        color: var(--muted-soft);
+        font-style: italic;
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      .muted-line { color: var(--muted-soft); font-style: italic; }
 
       .feedback {
         display: flex;
@@ -376,6 +407,40 @@
       }
       .badge.novelty { background: rgba(79, 158, 255, 0.2); color: var(--accent); }
       .badge.sale { background: rgba(255, 107, 107, 0.2); color: var(--red); }
+      .badge.best-price { background: rgba(76, 195, 138, 0.2); color: var(--green); }
+
+      .inferred-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+        margin-bottom: 12px;
+        font-size: 12px;
+      }
+      .inferred-row .label { color: var(--muted-soft); margin-right: 4px; }
+      .inferred-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: 12px;
+        padding: 3px 4px 3px 10px;
+        font-size: 12px;
+      }
+      .inferred-chip .x {
+        background: transparent;
+        border: 0;
+        color: inherit;
+        cursor: pointer;
+        font-size: 13px;
+        line-height: 1;
+        padding: 0 6px;
+        border-radius: 50%;
+        opacity: 0.8;
+      }
+      .inferred-chip .x:hover { opacity: 1; background: rgba(79, 158, 255, 0.2); }
 
       .skeleton {
         background: var(--card);
@@ -447,6 +512,7 @@
     <header>
       <h1>Консультант по номенклатуре</h1>
       <span class="pill" id="status" role="status" aria-live="polite">проверка...</span>
+      <div class="progress-bar" aria-hidden="true"><div class="fill" id="progress-fill"></div></div>
     </header>
     <main>
       <form class="form" id="form" role="search" aria-label="Поиск товаров">
@@ -766,17 +832,16 @@
         `;
       }
 
-      function renderProduct(p, requestId) {
-        const badge = p.status === 'Новинка'
-          ? '<span class="badge novelty">Новинка</span>'
-          : p.status === 'Распродажа'
-            ? '<span class="badge sale">Распродажа</span>'
-            : '';
+      function renderProduct(p, requestId, isCheapest) {
+        const badges = [];
+        if (p.status === 'Новинка') badges.push('<span class="badge novelty">Новинка</span>');
+        else if (p.status === 'Распродажа') badges.push('<span class="badge sale">Распродажа</span>');
+        if (isCheapest) badges.push('<span class="badge best-price">лучшая цена</span>');
         return `
           <article class="product" data-offer="${p.offerId}">
             <div class="row1">
               <div style="min-width:0">
-                <div class="name">${escapeHtml(p.name)} ${badge}</div>
+                <div class="name">${escapeHtml(p.name)} ${badges.join(' ')}</div>
                 ${renderProductMeta(p)}
               </div>
               ${renderProductPrice(p)}
@@ -791,7 +856,6 @@
 
       function renderRefinements(data) {
         if (!data.refinement_options) return '';
-        const inferred = data.filters_inferred || {};
         const applied = data.filters_applied || {};
         const tip = (label, value, target) =>
           `<button type="button" class="chip" data-refine='${JSON.stringify({ target, value })}'>${escapeHtml(label)}</button>`;
@@ -812,6 +876,48 @@
         return `<div class="refinements">${groups.join('')}</div>`;
       }
 
+      function renderInferredChips(data) {
+        const inferred = data.filters_inferred || {};
+        const applied = data.filters_applied || {};
+        const userFilters = state.filters || {};
+        // Show only inferred values that ended up applied AND that user didn't explicitly set
+        const chips = [];
+        const isUserSet = (k) => Array.isArray(userFilters[k]) && userFilters[k].length > 0;
+
+        if (Array.isArray(inferred.cities) && !isUserSet('cities')) {
+          for (const v of inferred.cities) {
+            if ((applied.cities || []).includes(v)) {
+              chips.push({ key: 'cities', value: v, label: `🏙 ${v}` });
+            }
+          }
+        }
+        if (Array.isArray(inferred.brands) && !isUserSet('brands')) {
+          for (const v of inferred.brands) {
+            if ((applied.brands || []).includes(v)) {
+              chips.push({ key: 'brands', value: v, label: `🏷 ${v}` });
+            }
+          }
+        }
+        if (Array.isArray(inferred.units) && !isUserSet('units')) {
+          for (const v of inferred.units) {
+            if ((applied.units || []).includes(v)) {
+              chips.push({ key: 'units', value: v, label: `📦 ${v}` });
+            }
+          }
+        }
+        if (inferred.status && !userFilters.status && applied.status === inferred.status) {
+          chips.push({ key: 'status', value: inferred.status, label: `📦 ${inferred.status}` });
+        }
+        if (chips.length === 0) return '';
+        const inner = chips
+          .map(
+            (c) =>
+              `<span class="inferred-chip">${escapeHtml(c.label)}<button type="button" class="x" data-inferred-clear="${escapeHtml(c.key)}" aria-label="Убрать ${escapeHtml(c.value)}">✕</button></span>`,
+          )
+          .join('');
+        return `<div class="inferred-row"><span class="label">определено:</span>${inner}</div>`;
+      }
+
       function renderResult(data) {
         state.lastResponse = data;
         renderFilters(data.refinement_options);
@@ -826,18 +932,30 @@
         const metaStr = meta.length ? `<div class="meta">${escapeHtml(meta.join(' · '))}</div>` : '';
         parts.push(`<div class="summary">${escapeHtml(data.summary)}${metaStr}</div>`);
         if (data.clarifying_question) {
-          parts.push(`<div class="clarifying"><b>Уточнение:</b> ${escapeHtml(data.clarifying_question)}</div>`);
+          const opts = Array.isArray(data.clarifying_options) ? data.clarifying_options : [];
+          const optsHtml = opts.length
+            ? `<div class="options">${opts.map((o) => `<button type="button" data-clarify="${escapeHtml(o)}">${escapeHtml(o)}</button>`).join('')}</div>`
+            : '';
+          parts.push(`<div class="clarifying"><b>Уточнение:</b> ${escapeHtml(data.clarifying_question)}${optsHtml}</div>`);
         }
+        parts.push(renderInferredChips(data));
         parts.push(renderRefinements(data));
         if (!data.products || data.products.length === 0) {
           parts.push('<div class="empty">Подходящих товаров не найдено. Попробуйте смягчить фильтры.</div>');
         } else {
-          for (const p of data.products) parts.push(renderProduct(p, data.requestId));
+          let cheapestId = null;
+          if (data.products.length > 1) {
+            let min = Infinity;
+            for (const p of data.products) {
+              if (p.prices?.retail < min) { min = p.prices.retail; cheapestId = p.offerId; }
+            }
+          }
+          for (const p of data.products) parts.push(renderProduct(p, data.requestId, p.offerId === cheapestId));
         }
         if (isDebug && data.diagnostics) {
           const d = data.diagnostics;
-          const cost = (d.cost_usd * 1000).toFixed(3);
-          parts.push(`<details class="diagnostics"><summary>Diagnostics (latency ${d.latency_ms}ms · ~$${cost} ‰ · retrieved ${d.retrieved_count} → ${d.after_filter_count})</summary><pre>${escapeHtml(JSON.stringify(d, null, 2))}</pre></details>`);
+          const cost = `$${d.cost_usd.toFixed(4)}`;
+          parts.push(`<details class="diagnostics"><summary>Diagnostics (latency ${d.latency_ms}ms · ${cost} · retrieved ${d.retrieved_count} → ${d.after_filter_count})</summary><pre>${escapeHtml(JSON.stringify(d, null, 2))}</pre></details>`);
         }
         result.innerHTML = parts.join('');
 
@@ -847,6 +965,18 @@
       }
 
       // ---------- network ----------
+      function parseSseChunk(chunk) {
+        let event = 'message';
+        const dataLines = [];
+        for (const line of chunk.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+        }
+        if (!dataLines.length) return null;
+        try { return { event, data: JSON.parse(dataLines.join('\n')) }; }
+        catch { return null; }
+      }
+
       async function ask(query) {
         if (!state.ready) return;
         if (activeAbort) activeAbort.abort();
@@ -862,16 +992,16 @@
             sort: state.sort,
           };
           if (isDebug) body.debug = true;
-          const r = await fetch('/api/ask', {
+          const r = await fetch('/api/ask/stream', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
             body: JSON.stringify(body),
             signal: ctrl.signal,
           });
           if (seq !== activeReqSeq) return;
-          stopProgressStages();
-          const j = await r.json();
           if (!r.ok) {
+            stopProgressStages();
+            const j = await r.json().catch(() => ({}));
             if (r.status === 503) {
               setStatus('warming', 'каталог прогревается');
               state.ready = false;
@@ -882,8 +1012,40 @@
             result.innerHTML = `<div class="error">Ошибка: ${escapeHtml(j.message || j.error || r.statusText)}</div>`;
             return;
           }
-          renderResult(j);
-          pushHistory(query);
+
+          const reader = r.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = '';
+          let gotRetrieved = false;
+          let gotFinal = false;
+          let preview = null;
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (seq !== activeReqSeq) { reader.cancel(); break; }
+            buf += decoder.decode(value, { stream: true });
+            let sepIdx;
+            while ((sepIdx = buf.indexOf('\n\n')) !== -1) {
+              const chunk = buf.slice(0, sepIdx);
+              buf = buf.slice(sepIdx + 2);
+              const parsed = parseSseChunk(chunk);
+              if (!parsed) continue;
+              if (parsed.event === 'retrieved') {
+                stopProgressStages();
+                gotRetrieved = true;
+                preview = parsed.data;
+                renderPreview(preview);
+              } else if (parsed.event === 'final') {
+                gotFinal = true;
+                stopProgressStages();
+                applyFinal(parsed.data, preview);
+              } else if (parsed.event === 'error') {
+                stopProgressStages();
+                result.innerHTML = `<div class="error">Ошибка: ${escapeHtml(parsed.data.message || 'unknown')}</div>`;
+              }
+            }
+          }
+          if (gotFinal || gotRetrieved) pushHistory(query);
         } catch (e) {
           if (e.name === 'AbortError') return;
           stopProgressStages();
@@ -894,6 +1056,90 @@
             setLoading(false);
           }
         }
+      }
+
+      function renderPreview(data) {
+        // Phase 1: show retrieval results without explanations.
+        renderFilters(data.refinement_options);
+        const parts = [];
+        const meta = [];
+        if (typeof data.total_available === 'number') meta.push(`найдено в наличии: ${data.total_available}`);
+        const metaStr = meta.length ? `<div class="meta">${escapeHtml(meta.join(' · '))}</div>` : '';
+        parts.push(`<div class="summary" id="phase-summary"><span class="muted-line">Подбираю формулировку…</span>${metaStr}</div>`);
+        parts.push(`<div id="phase-clarifying"></div>`);
+        parts.push(renderInferredChips({ filters_inferred: data.filters_inferred, filters_applied: data.filters_applied }));
+        parts.push(renderRefinements({ refinement_options: data.refinement_options, filters_applied: data.filters_applied }));
+        if (!data.products || data.products.length === 0) {
+          parts.push('<div class="empty">Подходящих товаров не найдено. Попробуйте смягчить фильтры.</div>');
+        } else {
+          let cheapestId = null;
+          if (data.products.length > 1) {
+            let min = Infinity;
+            for (const p of data.products) {
+              if (p.prices?.retail < min) { min = p.prices.retail; cheapestId = p.offerId; }
+            }
+          }
+          for (const p of data.products) {
+            // Phase-1 product card: explanation is a placeholder we'll fill on `final`.
+            const stub = { ...p, explanation: '…' };
+            parts.push(renderProduct(stub, data.requestId, p.offerId === cheapestId));
+          }
+        }
+        result.innerHTML = parts.join('');
+        // Mark explanation slots as awaiting:
+        for (const card of result.querySelectorAll('.product .explanation')) {
+          card.classList.add('placeholder');
+        }
+        state.lastResponse = { ...data };
+      }
+
+      function applyFinal(data, preview) {
+        // Phase 2: fill summary, attach explanations, clarifying, diagnostics.
+        const summaryEl = result.querySelector('#phase-summary');
+        if (summaryEl) {
+          const meta = [];
+          if (typeof data.total_available === 'number') meta.push(`найдено в наличии: ${data.total_available}`);
+          const metaStr = meta.length ? `<div class="meta">${escapeHtml(meta.join(' · '))}</div>` : '';
+          summaryEl.innerHTML = `${escapeHtml(data.summary || '')}${metaStr}`;
+        }
+        const clEl = result.querySelector('#phase-clarifying');
+        if (clEl) {
+          if (data.clarifying_question) {
+            const opts = Array.isArray(data.clarifying_options) ? data.clarifying_options : [];
+            const optsHtml = opts.length
+              ? `<div class="options">${opts.map((o) => `<button type="button" data-clarify="${escapeHtml(o)}">${escapeHtml(o)}</button>`).join('')}</div>`
+              : '';
+            clEl.outerHTML = `<div class="clarifying"><b>Уточнение:</b> ${escapeHtml(data.clarifying_question)}${optsHtml}</div>`;
+          } else {
+            clEl.remove();
+          }
+        }
+        // Attach explanations by offerId. `data.products` from the stream-final preserves retrieval order.
+        const explanationBy = new Map();
+        for (const p of data.products || []) explanationBy.set(p.offerId, p.explanation);
+        for (const card of result.querySelectorAll('.product')) {
+          const offer = Number(card.getAttribute('data-offer'));
+          const exp = explanationBy.get(offer);
+          const expEl = card.querySelector('.explanation');
+          if (!expEl) continue;
+          if (exp) {
+            expEl.classList.remove('placeholder');
+            expEl.textContent = exp;
+          } else {
+            // LLM didn't pick this product — soften it
+            expEl.classList.remove('placeholder');
+            expEl.textContent = '— LLM не выделил этот вариант';
+            expEl.style.opacity = '0.55';
+          }
+        }
+        if (isDebug && data.diagnostics) {
+          const d = data.diagnostics;
+          const cost = `$${d.cost_usd.toFixed(4)}`;
+          const cachedTag = d.cached ? ' · cached' : '';
+          const html = `<details class="diagnostics"><summary>Diagnostics (latency ${d.latency_ms}ms · ${cost}${cachedTag} · retrieved ${d.retrieved_count} → ${d.after_filter_count})</summary><pre>${escapeHtml(JSON.stringify(d, null, 2))}</pre></details>`;
+          result.insertAdjacentHTML('beforeend', html);
+        }
+        state.lastResponse = data;
       }
 
       function cleanFilters(f) {
@@ -935,6 +1181,22 @@
       }
 
       // ---------- health loop ----------
+      const progressFill = $('#progress-fill');
+      function setProgress(pct) {
+        progressFill.style.width = pct == null ? '0%' : `${Math.max(0, Math.min(100, pct))}%`;
+      }
+      function describePhase(j) {
+        if (j.phase === 'parse') return 'парсим каталог…';
+        if (j.phase === 'embed') {
+          const total = j.total || 0;
+          const done = j.done || 0;
+          const pct = total ? ((done / total) * 100).toFixed(1) : '0';
+          return `эмбеддинги ${done}/${total} (${pct}%)`;
+        }
+        if (j.phase === 'index') return 'строим индекс…';
+        if (j.phase === 'error') return j.error ? `ошибка: ${j.error}` : 'ошибка';
+        return 'прогрев…';
+      }
       async function checkHealth(attempt) {
         try {
           const r = await fetch('/api/health');
@@ -942,17 +1204,27 @@
           if (j.status === 'ready') {
             state.ready = true;
             setStatus('ready', 'готов');
+            setProgress(100);
+            setTimeout(() => setProgress(0), 600);
             submit.disabled = false;
             return;
           }
           state.ready = false;
-          setStatus('warming', 'прогрев индекса…');
+          if (j.status === 'error') {
+            setStatus('error', describePhase(j));
+            setProgress(0);
+          } else {
+            setStatus('warming', describePhase(j));
+            if (j.phase === 'embed' && j.total) setProgress((j.done / j.total) * 100);
+            else setProgress(null);
+          }
           submit.disabled = true;
-          const delay = Math.min(2000 * Math.pow(1.5, attempt), 15000);
+          const delay = j.phase === 'embed' ? 1000 : Math.min(1500 * Math.pow(1.4, attempt), 8000);
           setTimeout(() => checkHealth(attempt + 1), delay);
         } catch {
           state.ready = false;
           setStatus('error', 'нет связи, повторяем…');
+          setProgress(0);
           submit.disabled = true;
           const delay = Math.min(2000 * Math.pow(1.5, attempt), 15000);
           setTimeout(() => checkHealth(attempt + 1), delay);
@@ -1078,11 +1350,64 @@
             refireIfQuery();
           } catch {}
         }
+        const inf = e.target.closest('button[data-inferred-clear]');
+        if (inf) {
+          const key = inf.dataset.inferredClear;
+          if (key === 'status') state.filters.status = undefined;
+          else state.filters[key] = []; // explicit "any" — overrides backend inference
+          refireIfQuery();
+        }
+        const cl = e.target.closest('button[data-clarify]');
+        if (cl) {
+          const opt = cl.dataset.clarify;
+          const cur = q.value.trim();
+          q.value = cur ? `${cur} ${opt}` : opt;
+          if (state.ready) ask(q.value);
+        }
       });
+
+      // ---------- keyboard shortcuts ----------
+      document.addEventListener('keydown', (e) => {
+        const tag = document.activeElement?.tagName;
+        const inInput = tag === 'INPUT' || tag === 'TEXTAREA';
+        if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+          q.focus(); q.select(); e.preventDefault(); return;
+        }
+        if (e.key === '/' && !inInput && !e.metaKey && !e.ctrlKey) {
+          q.focus(); e.preventDefault(); return;
+        }
+        if (e.key === 'Escape') {
+          if (activeAbort) { cancelBtn.click(); return; }
+          if (inInput && q.value) { q.value = ''; e.preventDefault(); }
+        }
+      });
+
+      // history navigation with ↑/↓ when input is focused
+      let historyCursor = -1;
+      let savedQ = '';
+      q.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+        const list = loadHistory();
+        if (list.length === 0) return;
+        if (historyCursor === -1) savedQ = q.value;
+        if (e.key === 'ArrowUp') {
+          historyCursor = Math.min(historyCursor + 1, list.length - 1);
+          q.value = list[historyCursor];
+          e.preventDefault();
+        } else {
+          historyCursor = Math.max(historyCursor - 1, -1);
+          q.value = historyCursor === -1 ? savedQ : list[historyCursor];
+          e.preventDefault();
+        }
+        // place cursor at end
+        requestAnimationFrame(() => q.setSelectionRange(q.value.length, q.value.length));
+      });
+      q.addEventListener('input', () => { historyCursor = -1; });
 
       // ---------- init ----------
       renderFilters();
       renderHistory();
+      result.innerHTML = '<div class="empty">Введите запрос — например, «винты M4 длиной 45 мм».<br/><br/>Подсказки: <kbd>/</kbd> — фокус, <kbd>Cmd/Ctrl+K</kbd> — выделить, <kbd>↑↓</kbd> — история, <kbd>Esc</kbd> — отмена.</div>';
       checkHealth(0);
     </script>
   </body>

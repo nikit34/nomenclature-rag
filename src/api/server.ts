@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import corsPlugin from '@fastify/cors';
 import staticPlugin from '@fastify/static';
 import path from 'node:path';
 import { config } from '../config.js';
@@ -17,6 +18,11 @@ async function main() {
     const { method, url } = req;
     logger.info({ method, url }, 'request');
     done();
+  });
+
+  await app.register(corsPlugin, {
+    origin: true,
+    methods: ['GET', 'POST', 'OPTIONS'],
   });
 
   await registerHealthRoute(app);
