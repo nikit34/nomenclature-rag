@@ -1,8 +1,8 @@
 import type { Product } from '../ingestion/types.js';
-import type { BM25Index } from './bm25.js';
+import type { BM25Hit, BM25Index } from './bm25.js';
 import { searchBm25 } from './bm25.js';
 import { embedOne } from './embeddings.js';
-import { topKDense } from './vector.js';
+import { topKDense, type DenseHit } from './vector.js';
 import { detectCities } from './cityAliases.js';
 import type { Warehouse } from '../ingestion/types.js';
 
@@ -27,23 +27,19 @@ export type HybridDeps = {
   embeddings: Float32Array[];
 };
 
-export async function hybridSearch(
-  deps: HybridDeps,
-  query: string,
-  opts: { kBm25: number; kDense: number; kFinal: number },
-): Promise<HybridHit[]> {
-  const [bm25Results, qVec] = await Promise.all([
-    searchBm25(deps.bm25, query, opts.kBm25),
-    embedOne(query),
-  ]);
-  const denseResults = topKDense(qVec, deps.embeddings, opts.kDense);
-
+export function rrfMerge(
+  products: Product[],
+  productIndexById: Map<number, number>,
+  bm25Results: BM25Hit[],
+  denseResults: DenseHit[],
+  kFinal: number,
+): HybridHit[] {
   const merged = new Map<number, HybridHit>();
 
   bm25Results.forEach((hit, rank) => {
-    const idx = deps.productIndexById.get(hit.offerId);
+    const idx = productIndexById.get(hit.offerId);
     if (idx === undefined) return;
-    const product = deps.products[idx];
+    const product = products[idx];
     if (!product) return;
     merged.set(hit.offerId, {
       product,
@@ -54,7 +50,7 @@ export async function hybridSearch(
   });
 
   denseResults.forEach((hit, rank) => {
-    const product = deps.products[hit.index];
+    const product = products[hit.index];
     if (!product) return;
     const existing = merged.get(product.offerId);
     if (existing) {
@@ -73,7 +69,20 @@ export async function hybridSearch(
 
   return Array.from(merged.values())
     .sort((a, b) => b.rrfScore - a.rrfScore)
-    .slice(0, opts.kFinal);
+    .slice(0, kFinal);
+}
+
+export async function hybridSearch(
+  deps: HybridDeps,
+  query: string,
+  opts: { kBm25: number; kDense: number; kFinal: number },
+): Promise<HybridHit[]> {
+  const [bm25Results, qVec] = await Promise.all([
+    searchBm25(deps.bm25, query, opts.kBm25),
+    embedOne(query),
+  ]);
+  const denseResults = topKDense(qVec, deps.embeddings, opts.kDense);
+  return rrfMerge(deps.products, deps.productIndexById, bm25Results, denseResults, opts.kFinal);
 }
 
 export function inferCities(query: string): Warehouse[] {
