@@ -1,3 +1,5 @@
+import type { Warehouse } from '../ingestion/types.js';
+
 export type GoldenCase = {
   id: string;
   query: string;
@@ -19,6 +21,17 @@ export type GoldenCase = {
     /** acceptable behavior: ambiguity acknowledged (clarifying_question OR insufficient_data) */
     acceptsClarification?: boolean;
   };
+  /** retrieval-only: hit at rank 1 must satisfy this */
+  mustBeTop1?: {
+    anyOfOfferIds?: number[];
+    anyOfVendorCodes?: string[];
+  };
+  /** retrieval-only: every returned hit (within topK) must satisfy this */
+  mustAllMatch?: {
+    brand?: string;
+    cities?: Warehouse[];
+    unit?: string;
+  };
   topK?: number;
 };
 
@@ -27,12 +40,14 @@ export const GOLDEN: GoldenCase[] = [
     id: 'artikul-zz150',
     query: 'ZZ150 M4 X45 IB цена и наличие',
     expects: { anyOfOfferIds: [4479] },
+    mustBeTop1: { anyOfOfferIds: [4479] },
     topK: 5,
   },
   {
     id: 'artikul-7033-50',
     query: 'артикул 7033 50',
     expects: { anyOfVendorCodes: ['7033 50'] },
+    mustBeTop1: { anyOfVendorCodes: ['7033 50'] },
     topK: 5,
   },
   {
@@ -51,12 +66,14 @@ export const GOLDEN: GoldenCase[] = [
     id: 'brand-italiana',
     query: 'товары Italiana Ferramenta',
     expects: { allBrand: 'Italiana Ferramenta' },
+    mustAllMatch: { brand: 'Italiana Ferramenta' },
     topK: 5,
   },
   {
     id: 'kaiman-chrome-compare',
     query: 'KAIMAN в хроме сравните цены',
     expects: { anyOfVendorCodes: ['7033 50', '7033 53'] },
+    mustBeTop1: { anyOfVendorCodes: ['7033 50', '7033 53'] },
     topK: 5,
   },
   {
@@ -69,12 +86,14 @@ export const GOLDEN: GoldenCase[] = [
     id: 'sold-in-pairs',
     query: 'что продаётся парами а не штуками',
     expects: { allUnit: ['пар'] },
+    mustAllMatch: { unit: 'пар' },
     topK: 5,
   },
   {
     id: 'in-spb',
     query: 'наличие в Санкт-Петербурге',
     expects: { allInCities: ['Санкт-Петербург'] },
+    mustAllMatch: { cities: ['Санкт-Петербург'] },
     topK: 5,
   },
   {
@@ -83,6 +102,10 @@ export const GOLDEN: GoldenCase[] = [
     expects: {
       allBrand: 'Italiana Ferramenta',
       allInCities: ['Москва, Кантемировская', 'Королёв', 'МО, Клин'],
+    },
+    mustAllMatch: {
+      brand: 'Italiana Ferramenta',
+      cities: ['Москва, Кантемировская', 'Королёв', 'МО, Клин'],
     },
     topK: 5,
   },

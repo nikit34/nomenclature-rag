@@ -12,6 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "ingest": "tsx scripts/ingest.ts",
     "eval": "tsx scripts/eval.ts",
+    "eval:retrieval": "tsx scripts/eval-retrieval.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

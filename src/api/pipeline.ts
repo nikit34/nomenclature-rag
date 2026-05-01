@@ -19,12 +19,21 @@ import { applyFilters, type Filters } from '../search/filters.js';
 import { detectCities } from '../search/cityAliases.js';
 import { topKDense } from '../search/vector.js';
 import { embedOne } from '../search/embeddings.js';
-import { sanitizeQuery } from '../safety/sanitizeQuery.js';
+import { sanitizeQuery, type SanitizedQuery } from '../safety/sanitizeQuery.js';
 import { buildContext } from '../safety/contextBudget.js';
 import { validateAnswer } from '../safety/validateAnswer.js';
 import { generateAnswer, type LLMUsage } from '../llm/client.js';
 import { buildUserMessage, formatRetrieved } from '../llm/prompt.js';
 import { estimateCostUsd } from '../observability/cost.js';
+import type { Warehouse } from '../ingestion/types.js';
+
+export type RetrievalResult = {
+  hits: HybridHit[];
+  sanitized: SanitizedQuery;
+  filters: Filters;
+  cities: Warehouse[];
+  retrievedCount: number;
+};
 
 export type AskResult = {
   summary: string;
@@ -107,9 +116,8 @@ export class Pipeline {
     return this.ready;
   }
 
-  async ask(rawQuery: string): Promise<AskResult> {
+  async retrieve(rawQuery: string): Promise<RetrievalResult> {
     if (!this.ready) throw new Error('pipeline not ready');
-    const tStart = Date.now();
     const sanitized = sanitizeQuery(rawQuery);
     if (!sanitized.query) {
       throw new Error('empty query after sanitization');
@@ -155,6 +163,14 @@ export class Pipeline {
       const filtered = applyFilters(hits, filters);
       finalHits = (filtered.length > 0 ? filtered : hits).slice(0, config.TOP_K_FINAL);
     }
+
+    return { hits: finalHits, sanitized, filters, cities, retrievedCount };
+  }
+
+  async ask(rawQuery: string): Promise<AskResult> {
+    if (!this.ready) throw new Error('pipeline not ready');
+    const tStart = Date.now();
+    const { hits: finalHits, sanitized, cities, retrievedCount } = await this.retrieve(rawQuery);
 
     const ctx = buildContext(finalHits, config.MAX_CONTEXT_TOKENS);
     const retrievedBlock = formatRetrieved(ctx.items);
