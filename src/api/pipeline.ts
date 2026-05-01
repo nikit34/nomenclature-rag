@@ -13,6 +13,8 @@ import { buildBm25Index, type BM25Index } from '../search/bm25.js';
 import { embedBatch, loadEmbeddings, saveEmbeddings } from '../search/embeddings.js';
 import { config } from '../config.js';
 import { hybridSearch, type HybridDeps, type HybridHit } from '../search/hybrid.js';
+import { buildVendorCodeIndex } from '../search/exactMatch.js';
+import { buildBrandIndex, detectBrand } from '../search/brandIndex.js';
 import { applyFilters, type Filters } from '../search/filters.js';
 import { detectCities } from '../search/cityAliases.js';
 import { topKDense } from '../search/vector.js';
@@ -82,7 +84,16 @@ export class Pipeline {
         );
       }
       const bm25 = await buildBm25Index(products);
-      this.deps = { products, productIndexById, bm25, embeddings: vectors };
+      const vendorCodeIndex = buildVendorCodeIndex(products);
+      const brandIndex = buildBrandIndex(products);
+      this.deps = {
+        products,
+        productIndexById,
+        bm25,
+        embeddings: vectors,
+        vendorCodeIndex,
+        brandIndex,
+      };
       this.ready = true;
       logger.info(
         { products: products.length, vectors: vectors.length, ms: Date.now() - t0 },
@@ -105,8 +116,10 @@ export class Pipeline {
     }
 
     const cities = detectCities(sanitized.query);
+    const brand = detectBrand(sanitized.query, this.deps.brandIndex);
     const filters: Filters = {
       cities: cities.length ? cities : undefined,
+      brand,
       requireAvailable: false,
     };
     const ql = sanitized.query.toLowerCase();

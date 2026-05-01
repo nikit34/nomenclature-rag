@@ -5,13 +5,19 @@ import { embedOne } from './embeddings.js';
 import { topKDense, type DenseHit } from './vector.js';
 import { detectCities } from './cityAliases.js';
 import type { Warehouse } from '../ingestion/types.js';
+import { findCodeMatches, type VendorCodeIndex } from './exactMatch.js';
+import type { BrandIndex } from './brandIndex.js';
 
 export type HybridHit = {
   product: Product;
   bm25Rank?: number;
   denseRank?: number;
   rrfScore: number;
-  signals: { bm25?: number; dense?: number };
+  signals: {
+    bm25?: number;
+    dense?: number;
+    exactCode?: 'exact' | 'prefix';
+  };
 };
 
 const RRF_K = 60;
@@ -25,6 +31,8 @@ export type HybridDeps = {
   productIndexById: Map<number, number>;
   bm25: BM25Index;
   embeddings: Float32Array[];
+  vendorCodeIndex: VendorCodeIndex;
+  brandIndex: BrandIndex;
 };
 
 export function rrfMerge(
@@ -72,6 +80,40 @@ export function rrfMerge(
     .slice(0, kFinal);
 }
 
+export function pinCodeMatches(
+  products: Product[],
+  query: string,
+  index: VendorCodeIndex,
+  rrfHits: HybridHit[],
+  kFinal: number,
+): HybridHit[] {
+  const matches = findCodeMatches(query, index);
+  if (matches.length === 0) return rrfHits.slice(0, kFinal);
+
+  const out: HybridHit[] = [];
+  const seenOffer = new Set<number>();
+
+  matches.forEach((m, i) => {
+    const product = products[m.productIndex];
+    if (!product) return;
+    if (seenOffer.has(product.offerId)) return;
+    seenOffer.add(product.offerId);
+    out.push({
+      product,
+      rrfScore: 1 + 1 / (i + 1),
+      signals: { exactCode: m.type },
+    });
+  });
+
+  for (const hit of rrfHits) {
+    if (out.length >= kFinal) break;
+    if (seenOffer.has(hit.product.offerId)) continue;
+    out.push(hit);
+  }
+
+  return out.slice(0, kFinal);
+}
+
 export async function hybridSearch(
   deps: HybridDeps,
   query: string,
@@ -82,7 +124,14 @@ export async function hybridSearch(
     embedOne(query),
   ]);
   const denseResults = topKDense(qVec, deps.embeddings, opts.kDense);
-  return rrfMerge(deps.products, deps.productIndexById, bm25Results, denseResults, opts.kFinal);
+  const rrfHits = rrfMerge(
+    deps.products,
+    deps.productIndexById,
+    bm25Results,
+    denseResults,
+    Math.max(opts.kFinal * 2, opts.kFinal + 10),
+  );
+  return pinCodeMatches(deps.products, query, deps.vendorCodeIndex, rrfHits, opts.kFinal);
 }
 
 export function inferCities(query: string): Warehouse[] {

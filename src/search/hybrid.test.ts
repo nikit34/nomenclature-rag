@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { rrfMerge } from './hybrid.js';
+import { pinCodeMatches, rrfMerge, type HybridHit } from './hybrid.js';
 import type { Product } from '../ingestion/types.js';
 import type { BM25Hit } from './bm25.js';
 import type { DenseHit } from './vector.js';
+import { buildVendorCodeIndex } from './exactMatch.js';
 
 function p(offerId: number): Product {
   return {
@@ -129,5 +130,91 @@ describe('rrfMerge', () => {
   it('returns empty when both sources empty', () => {
     const { products, productIndexById } = makeProducts([10]);
     expect(rrfMerge(products, productIndexById, [], [], 10)).toEqual([]);
+  });
+});
+
+function pcm(
+  offerId: number,
+  vendorCode: string,
+  vendorCodeNorm: string,
+): Product {
+  return {
+    offerId,
+    name: `n${offerId}`,
+    vendor: { raw: 'V' },
+    model: 'M',
+    vendorCode,
+    vendorCodeNorm,
+    description: '',
+    attrs: {},
+    numericAttrs: {},
+    categoryId: 1,
+    unit: 'шт',
+    prices: { retail: 1 },
+    warrantyManufacturer: true,
+    available: true,
+    stocks: {},
+    searchText: '',
+  };
+}
+
+describe('pinCodeMatches', () => {
+  const products: Product[] = [
+    pcm(4479, 'ZZ150 M4 X45 IB/ШТ', 'zz150m4x45ibшт'),
+    pcm(5131, 'ZZ150BR M4 X45 IB/ШТ', 'zz150brm4x45ibшт'),
+    pcm(5327, '7033 50', '703350'),
+    pcm(9999, 'OTH-001', 'oth001'),
+    pcm(8888, 'OTH-002', 'oth002'),
+  ];
+  const idx = buildVendorCodeIndex(products);
+
+  function fakeRrfHit(offerId: number, score: number): HybridHit {
+    const product = products.find((p) => p.offerId === offerId)!;
+    return {
+      product,
+      bm25Rank: 1,
+      rrfScore: score,
+      signals: { bm25: score },
+    };
+  }
+
+  it('pins exact-match product above unrelated RRF hits', () => {
+    const rrf = [
+      fakeRrfHit(9999, 0.5),
+      fakeRrfHit(8888, 0.4),
+      fakeRrfHit(4479, 0.1),
+    ];
+    const out = pinCodeMatches(products, '7033 50', idx, rrf, 5);
+    expect(out[0]?.product.offerId).toBe(5327);
+    expect(out[0]?.signals.exactCode).toBe('exact');
+  });
+
+  it('pins prefix matches and keeps RRF tail under kFinal', () => {
+    const rrf = [fakeRrfHit(9999, 0.5), fakeRrfHit(8888, 0.4)];
+    const out = pinCodeMatches(products, 'ZZ150', idx, rrf, 4);
+    const pinned = out.filter((h) => h.signals.exactCode === 'prefix');
+    expect(pinned.map((h) => h.product.offerId).sort()).toEqual([4479, 5131]);
+    expect(out).toHaveLength(4);
+  });
+
+  it('does not duplicate when pinned product also appears in RRF', () => {
+    const rrf = [fakeRrfHit(5327, 0.05), fakeRrfHit(9999, 0.5)];
+    const out = pinCodeMatches(products, '7033 50', idx, rrf, 5);
+    const ids = out.map((h) => h.product.offerId);
+    expect(ids.filter((id) => id === 5327)).toHaveLength(1);
+    expect(ids[0]).toBe(5327);
+  });
+
+  it('passes through RRF when no code in query', () => {
+    const rrf = [fakeRrfHit(9999, 0.5), fakeRrfHit(8888, 0.4)];
+    const out = pinCodeMatches(products, 'просто запрос', idx, rrf, 5);
+    expect(out.map((h) => h.product.offerId)).toEqual([9999, 8888]);
+  });
+
+  it('respects kFinal cap with many pinned matches', () => {
+    const rrf: HybridHit[] = [];
+    const out = pinCodeMatches(products, 'ZZ150', idx, rrf, 1);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.signals.exactCode).toBe('prefix');
   });
 });

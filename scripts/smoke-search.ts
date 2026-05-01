@@ -3,6 +3,8 @@ import { buildBm25Index } from '../src/search/bm25.js';
 import { loadEmbeddings, embedOne } from '../src/search/embeddings.js';
 import { hybridSearch } from '../src/search/hybrid.js';
 import { detectCities } from '../src/search/cityAliases.js';
+import { buildVendorCodeIndex } from '../src/search/exactMatch.js';
+import { buildBrandIndex } from '../src/search/brandIndex.js';
 
 const QUERIES = [
   'ZZ150 M4 X45 IB',
@@ -22,7 +24,9 @@ async function main() {
   const productIndexById = new Map<number, number>();
   products.forEach((p, i) => productIndexById.set(p.offerId, i));
   const bm25 = await buildBm25Index(products);
-  const deps = { products, productIndexById, bm25, embeddings: vectors };
+  const vendorCodeIndex = buildVendorCodeIndex(products);
+  const brandIndex = buildBrandIndex(products);
+  const deps = { products, productIndexById, bm25, embeddings: vectors, vendorCodeIndex, brandIndex };
 
   for (const q of QUERIES) {
     const t = Date.now();
@@ -35,8 +39,9 @@ async function main() {
         .filter(([, s]) => s.qty > 0)
         .map(([c, s]) => `${c.split(',')[0]}=${s.approx ? `${s.qty}+` : s.qty}`)
         .join(' ');
+      const tag = h.signals.exactCode ? `pin:${h.signals.exactCode}` : `${h.bm25Rank ?? '-'}|${h.denseRank ?? '-'}`;
       console.log(
-        `  [${h.bm25Rank ?? '-'}|${h.denseRank ?? '-'}] ${p.offerId} ${p.vendorCode}  ${p.name.slice(0, 70)}  | unit=${p.unit} | ${stocks}`,
+        `  [${tag}] ${p.offerId} ${p.vendorCode}  ${p.name.slice(0, 70)}  | unit=${p.unit} | ${stocks}`,
       );
     }
   }
