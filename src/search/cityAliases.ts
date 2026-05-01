@@ -31,6 +31,12 @@ function tokenize(s: string): string[] {
     .filter((t) => t && !STOP_WORDS.has(t));
 }
 
+function isValidCaseEnding(suffix: string): boolean {
+  if (suffix.length === 0) return true;
+  if (suffix.length > 3) return false;
+  return /^[аяуюеёиыоэйь]+$/u.test(suffix);
+}
+
 export function detectCities(query: string): Warehouse[] {
   const tokens = tokenize(query);
   const matched = new Set<Warehouse>();
@@ -42,10 +48,11 @@ export function detectCities(query: string): Warehouse[] {
       continue;
     }
     for (const t of tokens) {
-      if (t.startsWith(stem) && t.length - stem.length <= 4) {
-        for (const w of rule.warehouses) matched.add(w);
-        break;
-      }
+      if (!t.startsWith(stem)) continue;
+      const suffix = t.slice(stem.length);
+      if (!isValidCaseEnding(suffix)) continue;
+      for (const w of rule.warehouses) matched.add(w);
+      break;
     }
   }
   return Array.from(matched);

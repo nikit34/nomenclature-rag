@@ -47,7 +47,7 @@ function pickNumber(...values: (string | undefined)[]): number | undefined {
 
 function detectUnitMm(s: string | undefined): number | undefined {
   if (!s) return undefined;
-  if (/см\b/i.test(s)) {
+  if (/(?:^|[\s\d])см(?:[\s,.;)]|$)/iu.test(s)) {
     const n = pickNumber(s);
     return n !== undefined ? n * MM_PER_CM : undefined;
   }
